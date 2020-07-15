@@ -17,6 +17,7 @@ unsafe impl Send for ScheduleWrapper {}
 struct Loop {
     name: String,
     running: bool,
+    waiting: bool,
     world: World,
     resources: Resources,
     schedule: ScheduleWrapper,
@@ -27,6 +28,7 @@ impl Loop {
         Loop {
             name,
             running: false,
+            waiting: false,
             world,
             resources,
             schedule: ScheduleWrapper { schedule },
@@ -34,7 +36,7 @@ impl Loop {
     }
 
     fn execute(&mut self, pool: &mut ThreadPool) {
-        if !self.running {
+        if !self.running && !self.waiting {
             self.running = true;
 
             pool.install(|| {
@@ -104,7 +106,7 @@ impl Application {
 
                     if !self.loops[from_id].running {
                         link.waiting = true;
-                        self.loops[from_id].running = true;
+                        self.loops[from_id].waiting = true;
                     }
                 } else {
                     let to_id = link.to_id.unwrap();
@@ -113,7 +115,7 @@ impl Application {
                         let from_id = link.from_id.unwrap();
 
                         link.waiting = false;
-                        self.loops[from_id].running = false;
+                        self.loops[from_id].waiting = false;
 
                         (link.update)(&mut self.loops, from_id, to_id);
                     }
