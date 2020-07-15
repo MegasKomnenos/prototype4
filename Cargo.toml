@@ -1,0 +1,11 @@
+[package]
+name = "prototype4"
+version = "0.1.0"
+authors = ["KJH <wogudwkd1233@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+legion = "0.2.4"
+rayon = "1.3.1"
