@@ -1,4 +1,6 @@
 use legion::prelude::*;
+use legion::entity::Entity;
+use legion::systems::SystemBuilder;
 use legion::systems::resource::Resources;
 use legion::systems::schedule::Schedule;
 use rayon::prelude::*;
@@ -6,7 +8,6 @@ use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
 
 use std::collections::HashMap;
-use std::sync::Barrier;
 
 struct ScheduleWrapper {
     schedule: Schedule,
@@ -129,5 +130,86 @@ impl Application {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Test {
+    x: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Tag {
+    id: usize,
+    other: Option<Entity>,
+}
+
 fn main() {
+    let universe = Universe::new();
+
+    let mut world0 = universe.create_world();
+    let mut world1 = universe.create_world();
+
+    let num_of_countries = 100;
+
+    world0.insert(
+        (),
+        (0..num_of_countries).map(|i| (Test { x: 0. }, Tag { id: i, other: None }))
+    );
+    world1.insert(
+        (),
+        (0..num_of_countries).map(|i| (Test { x: 0. }, Tag { id: i, other: None }))
+    );
+
+    let query = <Write<Tag>>::query();
+
+    for (id_tag, mut tag) in query.iter_entities_mut(&mut world0) {
+        for (id_other, mut other) in query.iter_entities_mut(&mut world1) {
+            if tag.id == other.id {
+                tag.other = Some(id_other.clone());
+                other.other = Some(id_tag.clone());
+            }
+        }
+    }
+
+    let system0 = SystemBuilder::<()>::new("Test System 0")
+            .with_query(<Write<Test>>::query())
+            .build(move |_, world, _, queries| {
+                for mut test in queries.iter_mut(&mut *world) {
+                    test.x += 1.;
+                }
+            });
+    let system1 = SystemBuilder::<()>::new("Test System 1")
+            .with_query(<(Read<Test>, Read<Tag>)>::query())
+            .build(move |_, world, _, queries| {
+                for (test, tag) in queries.iter(world) {
+                    println!("{} {}", test.x, tag.id);
+                }
+            });
+
+    let schedule0 = Schedule::builder()
+            .add_system(system0)
+            .build();
+    let schedule1 = Schedule::builder()
+            .add_system(system1)
+            .build();
+
+    let loop0 = Loop::new("Test Loop 0".to_string(), world0, Default::default(), schedule0);
+    let loop1 = Loop::new("Test Loop 1".to_string(), world1, Default::default(), schedule1);
+
+    let link = Link::new("Test Loop 0".to_string(), "Test Loop 1".to_string(), |loops, from, to| {
+        let mut storage = HashMap::<Entity, f32>::new();
+
+        for (test, tag) in <(Read<Test>, Read<Tag>)>::query().iter(&loops[from].world) {
+            storage.insert(tag.other.unwrap(), test.x);
+        }
+        for (entity, mut test) in <Write<Test>>::query().iter_entities_mut(&mut loops[to].world) {
+            test.x = storage.get(&entity).unwrap() + 1.;
+        }
+    });
+
+    let mut app = Application::new();
+
+    app.add_loop(loop0, 1);
+    app.add_loop(loop1, 1);
+    app.add_link(link);
+
+    app.execute();
 }
