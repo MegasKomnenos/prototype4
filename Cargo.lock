@@ -176,8 +176,7 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 [[package]]
 name = "legion"
 version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e059ba732e662c56498934d154cd15c06cb9906fc10100d1943599e668948d58"
+source = "git+https://github.com/MegasKomnenos/legion#600f568f1e3403102c69c4acd3a7302a0f98b739"
 dependencies = [
  "legion-core",
  "legion-systems",
@@ -186,8 +185,7 @@ dependencies = [
 [[package]]
 name = "legion-core"
 version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "496db1dcb9f680ffd5ac1a03d1f6daeab50969aff42b0672c72f2c6aa760f175"
+source = "git+https://github.com/MegasKomnenos/legion#600f568f1e3403102c69c4acd3a7302a0f98b739"
 dependencies = [
  "bit-set",
  "crossbeam-channel",
@@ -205,8 +203,7 @@ dependencies = [
 [[package]]
 name = "legion-systems"
 version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5b5d278fa55705f6230b2c36d3e67a1d02e66bc532ecb3f92bdda7763309447"
+source = "git+https://github.com/MegasKomnenos/legion#600f568f1e3403102c69c4acd3a7302a0f98b739"
 dependencies = [
  "bit-set",
  "crossbeam-channel",

@@ -1,12 +1,20 @@
 use legion::prelude::*;
 use legion::entity::Entity;
+use legion::storage::ComponentTypeId;
 use legion::systems::SystemBuilder;
 use legion::systems::resource::Resources;
 use legion::systems::schedule::Schedule;
 use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
 
+use std::sync::mpsc::{ Sender, Receiver, channel };
 use std::collections::HashMap;
+
+enum LoopEvent {
+    RemoveEntity(Entity),
+    RemoveComponent(Entity, ComponentTypeId),
+    ChangeComponent(Entity, ComponentTypeId, f32, fn(&mut World, &ComponentTypeId, f32)),
+}
 
 struct ScheduleWrapper {
     schedule: Schedule,
@@ -21,10 +29,17 @@ struct Loop {
     world: World,
     resources: Resources,
     schedule: ScheduleWrapper,
+    senders: HashMap<String, Sender<LoopEvent>>,
+    receiver: Receiver<LoopEvent>,
 }
 
 impl Loop {
     fn new(name: String, world: World, resources: Resources, schedule: Schedule) -> Self {
+        let (producer, receiver) = channel::<LoopEvent>();
+
+        let mut senders = HashMap::new();
+        senders.insert(name.clone(), producer);
+
         Loop {
             name,
             running: false,
@@ -32,6 +47,8 @@ impl Loop {
             world,
             resources,
             schedule: ScheduleWrapper { schedule },
+            senders,
+            receiver,
         }
     }
 
@@ -43,6 +60,30 @@ impl Loop {
                 self.schedule.schedule.execute(&mut self.world, &mut self.resources);
                 self.running = false;
             });
+        }
+    }
+
+    fn subscribe(&mut self, lp: &Loop) {
+        self.senders.insert(lp.name.clone(), lp.senders.get(&lp.name).unwrap().clone());
+    }
+    
+    fn unsubscribe(&mut self, lp: &Loop) {
+        self.senders.remove(&lp.name);
+    }
+
+    fn handle_event(&mut self) {
+        for event in self.receiver.try_iter() {
+            match event {
+                LoopEvent::RemoveEntity(entity) => {
+                    self.world.delete(entity);
+                },
+                LoopEvent::RemoveComponent(entity, id) => {
+                    self.world.move_entity(entity, &[], &[id], &[], &[]);
+                }
+                LoopEvent::ChangeComponent(entity, id, val, func) => {
+                    func(&mut self.world, &id, val);
+                }
+            }
         }
     }
 }
