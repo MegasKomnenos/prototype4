@@ -34,9 +34,9 @@ unsafe impl Sync for SenderWrapper {}
 
 struct Loop {
     name: String,
-    running: bool,
-    waiting: bool,
     enabled: bool,
+    running: bool,
+    waiting: u8,
     world: World,
     resources: Resources,
     schedule: ScheduleWrapper,
@@ -56,9 +56,9 @@ impl Loop {
 
         Loop {
             name,
-            running: false,
-            waiting: false,
             enabled: false,
+            running: false,
+            waiting: 0,
             world,
             resources,
             schedule: ScheduleWrapper { schedule },
@@ -67,7 +67,7 @@ impl Loop {
     }
 
     fn execute(&mut self, pool: &mut ThreadPool) {
-        if !self.enabled || self.waiting {
+        if !self.enabled || self.waiting >= 1 {
             pool.install(|| {
                 self.handle_event();
             });
@@ -167,24 +167,25 @@ impl LoopManager {
     fn execute(&mut self) {
         loop {
             for link in self.links.iter_mut() {
-                if !link.waiting {
-                    let from_id = link.from_id.unwrap();
+                let from_id = link.from_id.unwrap();
+                let to_id = link.to_id.unwrap();
 
-                    if !self.loops[from_id].running {
-                        link.waiting = true;
-                        self.loops[from_id].waiting = true;
+                if self.loops[from_id].enabled && self.loops[to_id].enabled {
+                    if !link.waiting {
+                        if !self.loops[from_id].running {
+                            link.waiting = true;
+                            self.loops[from_id].waiting += 1;
+                        }
                     }
-                } else {
-                    let to_id = link.to_id.unwrap();
-
-                    if !self.loops[to_id].running {
-                        let from_id = link.from_id.unwrap();
-
+                    if link.waiting && !self.loops[to_id].running {
                         link.waiting = false;
-                        self.loops[from_id].waiting = false;
+                        self.loops[from_id].waiting -= 1;
 
                         (link.update)(&mut self.loops, from_id, to_id);
                     }
+                } else if link.waiting {
+                    link.waiting = false;
+                    self.loops[from_id].waiting -= 1;
                 }
             }
 
