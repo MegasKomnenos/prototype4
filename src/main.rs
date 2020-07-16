@@ -3,7 +3,6 @@ use legion::entity::Entity;
 use legion::systems::SystemBuilder;
 use legion::systems::resource::Resources;
 use legion::systems::schedule::Schedule;
-use rayon::prelude::*;
 use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
 
@@ -70,16 +69,16 @@ impl Link {
     }
 }
 
-struct Application {
+struct LoopManager {
     loops: Vec<Loop>,
     pools: Vec<ThreadPool>,
     links: Vec<Link>,
     name_id: HashMap<String, usize>,
 }
 
-impl Application {
+impl LoopManager {
     fn new() -> Self {
-        Application {
+        LoopManager {
             loops: Vec::new(),
             pools: Vec::new(),
             links: Vec::new(),
@@ -205,7 +204,7 @@ fn main() {
         }
     });
 
-    let mut app = Application::new();
+    let mut app = LoopManager::new();
 
     app.add_loop(loop0, 1);
     app.add_loop(loop1, 1);
