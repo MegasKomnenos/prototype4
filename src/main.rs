@@ -57,7 +57,9 @@ impl Loop {
             self.running = true;
 
             pool.install(|| {
+                self.handle_event();
                 self.schedule.schedule.execute(&mut self.world, &mut self.resources);
+                self.handle_event();
                 self.running = false;
             });
         }
