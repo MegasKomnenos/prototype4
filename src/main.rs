@@ -13,7 +13,7 @@ use std::collections::HashMap;
 enum LoopEvent {
     RemoveEntity(Entity),
     RemoveComponent(Entity, ComponentTypeId),
-    ChangeComponent(Entity, ComponentTypeId, f32, fn(&mut World, &mut Resources, &ComponentTypeId, f32)),
+    ChangeComponent(Entity, ComponentTypeId, f32, fn(&mut World, &mut Resources, &Entity, &ComponentTypeId, f32)),
 }
 
 struct ScheduleWrapper {
@@ -96,7 +96,7 @@ impl Loop {
                     self.world.move_entity(entity, &[], &[id], &[], &[]);
                 }
                 LoopEvent::ChangeComponent(entity, id, val, func) => {
-                    func(&mut self.world, &mut self.resources, &id, val);
+                    func(&mut self.world, &mut self.resources, &entity, &id, val);
                 }
             }
         }
