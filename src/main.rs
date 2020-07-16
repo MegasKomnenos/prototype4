@@ -13,7 +13,7 @@ use std::collections::HashMap;
 enum LoopEvent {
     RemoveEntity(Entity),
     RemoveComponent(Entity, ComponentTypeId),
-    ChangeComponent(Entity, ComponentTypeId, f32, fn(&mut World, &ComponentTypeId, f32)),
+    ChangeComponent(Entity, ComponentTypeId, f32, fn(&mut World, &mut Resources, &ComponentTypeId, f32)),
 }
 
 struct ScheduleWrapper {
@@ -22,6 +22,14 @@ struct ScheduleWrapper {
 
 unsafe impl Send for ScheduleWrapper {}
 
+#[derive(Clone)]
+struct SenderWrapper {
+    sender: Sender<LoopEvent>,
+}
+
+unsafe impl Send for SenderWrapper {}
+unsafe impl Sync for SenderWrapper {}
+
 struct Loop {
     name: String,
     running: bool,
@@ -29,16 +37,19 @@ struct Loop {
     world: World,
     resources: Resources,
     schedule: ScheduleWrapper,
-    senders: HashMap<String, Sender<LoopEvent>>,
     receiver: Receiver<LoopEvent>,
 }
 
 impl Loop {
-    fn new(name: String, world: World, resources: Resources, schedule: Schedule) -> Self {
+    fn new(name: String, world: World, mut resources: Resources, schedule: Schedule) -> Self {
         let (producer, receiver) = channel::<LoopEvent>();
 
+        let sender = SenderWrapper { sender: producer };
         let mut senders = HashMap::new();
-        senders.insert(name.clone(), producer);
+        senders.insert(name.clone(), sender.clone());
+
+        resources.insert(sender);
+        resources.insert(senders);
 
         Loop {
             name,
@@ -47,7 +58,6 @@ impl Loop {
             world,
             resources,
             schedule: ScheduleWrapper { schedule },
-            senders,
             receiver,
         }
     }
@@ -66,11 +76,14 @@ impl Loop {
     }
 
     fn subscribe(&mut self, lp: &Loop) {
-        self.senders.insert(lp.name.clone(), lp.senders.get(&lp.name).unwrap().clone());
+        let mut senders = self.resources.get_mut::<HashMap<String, SenderWrapper>>().unwrap();
+        let sender = lp.resources.get::<SenderWrapper>().unwrap();
+        senders.insert(self.name.clone(), sender.clone());
     }
     
     fn unsubscribe(&mut self, lp: &Loop) {
-        self.senders.remove(&lp.name);
+        let mut senders = self.resources.get_mut::<HashMap<String, SenderWrapper>>().unwrap();
+        senders.remove(&lp.name);
     }
 
     fn handle_event(&mut self) {
@@ -83,7 +96,7 @@ impl Loop {
                     self.world.move_entity(entity, &[], &[id], &[], &[]);
                 }
                 LoopEvent::ChangeComponent(entity, id, val, func) => {
-                    func(&mut self.world, &id, val);
+                    func(&mut self.world, &mut self.resources, &id, val);
                 }
             }
         }
