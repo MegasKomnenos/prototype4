@@ -11,6 +11,8 @@ use std::sync::mpsc::{ Sender, Receiver, channel };
 use std::collections::HashMap;
 
 enum LoopEvent {
+    Enable,
+    Disable,
     RemoveEntity(Entity),
     RemoveComponent(Entity, ComponentTypeId),
     ChangeComponent(Entity, ComponentTypeId, f32, fn(&mut World, &mut Resources, &Entity, &ComponentTypeId, f32)),
@@ -34,6 +36,7 @@ struct Loop {
     name: String,
     running: bool,
     waiting: bool,
+    enabled: bool,
     world: World,
     resources: Resources,
     schedule: ScheduleWrapper,
@@ -55,6 +58,7 @@ impl Loop {
             name,
             running: false,
             waiting: false,
+            enabled: false,
             world,
             resources,
             schedule: ScheduleWrapper { schedule },
@@ -63,11 +67,14 @@ impl Loop {
     }
 
     fn execute(&mut self, pool: &mut ThreadPool) {
-        if !self.running && !self.waiting {
+        if !self.enabled || self.waiting {
+            pool.install(|| {
+                self.handle_event();
+            });
+        } else if !self.running {
             self.running = true;
 
             pool.install(|| {
-                self.handle_event();
                 self.schedule.schedule.execute(&mut self.world, &mut self.resources);
                 self.handle_event();
                 self.running = false;
@@ -89,6 +96,9 @@ impl Loop {
     fn handle_event(&mut self) {
         for event in self.receiver.try_iter() {
             match event {
+                LoopEvent::Enable => self.enabled = true,
+                LoopEvent::Disable => self.enabled = false,
+                
                 LoopEvent::RemoveEntity(entity) => {
                     self.world.delete(entity);
                 },
