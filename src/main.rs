@@ -30,6 +30,14 @@ struct Wrapper<T> {
     item: T,
 }
 
+impl<T: Clone> Clone for Wrapper<T> {
+    fn clone(&self) -> Self {
+        Wrapper {
+            item: self.item.clone()
+        }
+    }
+}
+
 unsafe impl<T> Send for Wrapper<T> {}
 unsafe impl<T> Sync for Wrapper<T> {}
 
@@ -197,6 +205,23 @@ impl Core {
         self.names.push("Systems".to_string());
         self.pools.push(ThreadPoolBuilder::new().num_threads(num_cpus::get() - 1).build().unwrap());
         self.loops.push(Arc::new(Loop::new(self.root.clone(), self.universe.create_world(), Resources::default(), Schedule::builder().build())));
+    }
+
+    fn load_event_channels(&mut self) {
+        let i_app = self.names.iter().position(|x| *x == "Application".to_string()).unwrap();
+        let i_sys = self.names.iter().position(|x| *x == "Systems".to_string()).unwrap();
+
+        let mut loop_app = self.loops[i_app].clone();
+        let mut loop_sys = self.loops[i_sys].clone();
+
+        unsafe {
+            let sender_sys = loop_sys.resources.get::<Wrapper<Sender<LoopEvent>>>().unwrap();
+            Arc::get_mut_unchecked(&mut loop_app).resources.get_mut::<HashMap<usize, Wrapper<Sender<LoopEvent>>>>().unwrap().insert(i_sys, sender_sys.clone());
+        }
+        unsafe {
+            let sender_app = loop_app.resources.get::<Wrapper<Sender<LoopEvent>>>().unwrap();
+            Arc::get_mut_unchecked(&mut loop_sys).resources.get_mut::<HashMap<usize, Wrapper<Sender<LoopEvent>>>>().unwrap().insert(i_app, sender_app.clone());
+        }
     }
 
     fn load_link(&mut self) {
