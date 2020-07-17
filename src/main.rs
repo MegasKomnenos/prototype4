@@ -82,9 +82,9 @@ impl Loop {
                     func(&self.resources, &self.events.item);
                 }
             }
-        });
 
-        self.root.wait();
+            self.root.wait();
+        });
     }
 
     fn handle_events(&mut self) {
@@ -158,9 +158,9 @@ impl Link {
                     func(self.from.clone(), self.to.clone());
                 }
             }
-        });
 
-        self.root.wait();
+            self.root.wait();
+        });
     }
 
     fn set_on_update_start(&mut self, func: fn(Arc<Loop>, Arc<Loop>)) {
