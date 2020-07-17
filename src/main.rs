@@ -159,6 +159,8 @@ impl Link {
                 }
             }
         });
+
+        self.root.wait();
     }
 
     fn set_on_update_start(&mut self, func: fn(Arc<Loop>, Arc<Loop>)) {
