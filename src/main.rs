@@ -10,8 +10,12 @@ use legion::systems::schedule::Schedule;
 use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
 
+use rand::thread_rng;
+use rand::Rng;
+
 use std::sync::Arc;
 use std::sync::Barrier;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
@@ -41,209 +45,197 @@ impl<T: Clone> Clone for Wrapper<T> {
 unsafe impl<T> Send for Wrapper<T> {}
 unsafe impl<T> Sync for Wrapper<T> {}
 
-struct Loop {
-    root: Arc<Barrier>,
+fn handle_event(world: &mut World, resources: &mut Resources, events: &Receiver<LoopEvent>) {
+    for event in events.try_iter() {
+        match event {
+            LoopEvent::RemoveEntity(entity) => {
+                world.delete(entity);
+            },
+            LoopEvent::ChangeComponent(entity, wrapper, func) => {
+                func(world, &entity, wrapper.item);
+            },
+            LoopEvent::ChangeResource(wrapper, func) => {
+                func(resources, wrapper.item);
+            }
+        }
+    }
+}
+
+struct AppLoop {
     world: World,
     resources: Resources,
     schedule: Wrapper<Schedule>,
     events: Wrapper<Receiver<LoopEvent>>,
-    on_schedule_start: Option<fn(&Resources, &Receiver<LoopEvent>)>,
-    on_schedule_end: Option<fn(&Resources, &Receiver<LoopEvent>)>,
-}
-
-impl Loop {
-    fn new(root: Arc<Barrier>, world: World, mut resources: Resources, schedule: Schedule) -> Self {
-        let (producer, receiver) = channel::<LoopEvent>();
-
-        resources.insert(Wrapper { item: producer });
-        resources.insert(HashMap::<String, Wrapper<Sender<LoopEvent>>>::new());
-
-        Loop {
-            root,
-            world,
-            resources,
-            schedule: Wrapper { item: schedule },
-            events: Wrapper { item: receiver },
-            on_schedule_start: None,
-            on_schedule_end: None,
-        }
-    }
-
-    fn start(&mut self, pool: &ThreadPool) {
-        pool.install(|| {
-            loop {
-                if let Some(func) = self.on_schedule_start {
-                    func(&self.resources, &self.events.item);
-                }
-
-                self.schedule.item.execute(&mut self.world, &mut self.resources);
-                
-                if let Some(func) = self.on_schedule_end {
-                    func(&self.resources, &self.events.item);
-                }
-            }
-
-            self.root.wait();
-        });
-    }
-
-    fn handle_events(&mut self) {
-        for event in self.events.item.try_iter() {
-            match event {
-                LoopEvent::RemoveEntity(entity) => {
-                    self.world.delete(entity);
-                },
-                LoopEvent::ChangeComponent(entity, wrapper, func) => {
-                    func(&mut self.world, &entity, wrapper.item);
-                },
-                LoopEvent::ChangeResource(wrapper, func) => {
-                    func(&mut self.resources, wrapper.item);
-                }
-            }
-        }
-    }
-
-    fn set_on_schedule_start(&mut self, func: fn(&Resources, &Receiver<LoopEvent>)) {
-        self.on_schedule_start = Some(func);
-    }
-    fn set_on_schedule_end(&mut self, func: fn(&Resources, &Receiver<LoopEvent>)) {
-        self.on_schedule_end = Some(func);
-    }
-}
-
-struct Link {
-    root: Arc<Barrier>,
-    from: Arc<Loop>,
-    to: Arc<Loop>,
+    mtx: Arc<Mutex<bool>>,
     barrier: Arc<Barrier>,
-    update: fn(Arc<Loop>, Arc<Loop>),
-    on_update_start: Option<fn(Arc<Loop>, Arc<Loop>)>,
-    on_update_end: Option<fn(Arc<Loop>, Arc<Loop>)>,
+    on_schedule_start: Vec<fn(&mut World, &mut Resources, &Receiver<LoopEvent>)>,
+    on_schedule_end: Vec<fn(&mut World, &mut Resources, &Receiver<LoopEvent>)>,
 }
 
-impl Link {
-    fn new(root: Arc<Barrier>, loops: &Vec<Arc<Loop>>, names: &Vec<String>, from: String, to: String, update: fn(Arc<Loop>, Arc<Loop>)) -> Self {
-        let mut from = loops[names.iter().position(|x| *x == from).unwrap()].clone();
-        let mut to = loops[names.iter().position(|x| *x == to).unwrap()].clone();
-        let barrier = Arc::new(Barrier::new(3));
-
-        unsafe {
-            Arc::get_mut_unchecked(&mut from).resources.insert(barrier.clone());
-            Arc::get_mut_unchecked(&mut to).resources.insert(barrier.clone());
-        }
-
-        Link {
-            root,
-            from,
-            to,
-            barrier,
-            update,
-            on_update_start: None,
-            on_update_end: None,
-        }
-    }
-
-    fn start(&self, pool: &ThreadPool) {
-        pool.install(|| {
+impl AppLoop {
+    fn start(mut app: Arc<AppLoop>, pool: &ThreadPool) {
+        pool.spawn(move || {
             loop {
-                self.barrier.wait();
-
-                if let Some(func) = self.on_update_start {
-                    func(self.from.clone(), self.to.clone());
+                println!("App Waiting");
+                let app = unsafe { Arc::get_mut_unchecked(&mut app) };
+                let _guard = app.mtx.lock();
+                println!("App Starting");
+                for func in app.on_schedule_start.iter() {
+                    func(&mut app.world, &mut app.resources, &app.events.item);
                 }
 
-                (self.update)(self.from.clone(), self.to.clone());
+                app.schedule.item.execute(&mut app.world, &mut app.resources);
 
-                if let Some(func) = self.on_update_end {
-                    func(self.from.clone(), self.to.clone());
+                for func in app.on_schedule_end.iter() {
+                    func(&mut app.world, &mut app.resources, &app.events.item);
+                }
+                println!("App Ending");
+            }
+
+            app.barrier.wait();
+        });
+    }
+}
+
+struct SysLoop {
+    world: World,
+    resources: Resources,
+    schedule: Wrapper<Schedule>,
+    events: Wrapper<Receiver<LoopEvent>>,
+    mtx: Arc<Mutex<bool>>,
+    barrier: Arc<Barrier>,
+    on_schedule_start: Vec<fn(&mut World, &mut Resources, &Receiver<LoopEvent>)>,
+    on_schedule_end: Vec<fn(&mut World, &mut Resources, &Receiver<LoopEvent>)>,
+    on_schedule_wait: Vec<fn(&mut World, &mut Resources, &Receiver<LoopEvent>)>,
+    update: fn(&mut AppLoop, &SysLoop),
+    run: Arc<AtomicBool>,
+}
+
+impl SysLoop {
+    fn start(mut sys: Arc<SysLoop>, mut app: Arc<AppLoop>, pool: &ThreadPool) {
+        pool.spawn(move || {
+            let sys = unsafe { Arc::get_mut_unchecked(&mut sys) };
+
+            loop {
+                if sys.run.load(Ordering::Relaxed) {
+                    println!("Sys Starting");
+                    
+                    sys.run.store(false, Ordering::Relaxed);
+
+                    for func in sys.on_schedule_start.iter() {
+                        func(&mut sys.world, &mut sys.resources, &sys.events.item);
+                    }
+        
+                    sys.schedule.item.execute(&mut sys.world, &mut sys.resources);
+        
+                    for func in sys.on_schedule_end.iter() {
+                        func(&mut sys.world, &mut sys.resources, &sys.events.item);
+                    }
+
+                    println!("Sys Update Waiting");
+        
+                    let _guard = sys.mtx.lock();
+
+                    println!("Sys Update Starting");
+        
+                    let app = unsafe { Arc::get_mut_unchecked(&mut app) };
+        
+                    (sys.update)(app, &sys);
+
+                    println!("Sys Ending");
+                } else {
+                    for func in sys.on_schedule_wait.iter() {
+                        func(&mut sys.world, &mut sys.resources, &sys.events.item);
+                    }
                 }
             }
 
-            self.root.wait();
+            sys.barrier.wait();
         });
-    }
-
-    fn set_on_update_start(&mut self, func: fn(Arc<Loop>, Arc<Loop>)) {
-        self.on_update_start = Some(func);
-    }
-    fn set_on_update_end(&mut self, func: fn(Arc<Loop>, Arc<Loop>)) {
-        self.on_update_end = Some(func);
     }
 }
 
 struct Core {
-    root: Arc<Barrier>,
     universe: Universe,
-    loops: Vec<Arc<Loop>>,
-    links: Vec<Link>,
+    app: Arc<AppLoop>,
+    sys: Arc<SysLoop>,
     pools: Vec<ThreadPool>,
-    pools_link: Vec<ThreadPool>,
-    names: Vec<String>,
+    barrier: Arc<Barrier>,
 }
 
 impl Core {
     fn new() -> Self {
-        let root = Arc::new(Barrier::new(4));
         let universe = Universe::new();
+        let barrier = Arc::new(Barrier::new(3));
+        let mtx = Arc::new(Mutex::new(false));
+        let run = Arc::new(AtomicBool::new(false));
+        let pools = vec![ThreadPoolBuilder::new().num_threads(1).build().unwrap(), ThreadPoolBuilder::new().num_threads(num_cpus::get() - 1).build().unwrap()];
+
+        let (producer_app, consumer_app) = channel::<LoopEvent>();
+        let (producer_sys, consumer_sys) = channel::<LoopEvent>();
+
+        let mut resources_app = Resources::default();
+        let mut resources_sys = Resources::default();
+
+        resources_app.insert(Wrapper { item: producer_sys });
+        resources_sys.insert(Wrapper { item: producer_app });
+
+        resources_app.insert(run.clone());
+
+        let test_system = SystemBuilder::new("Test System")
+                .write_resource::<Arc<AtomicBool>>()
+                .build(|_, _, resource, _| {
+                    if thread_rng().gen_bool(0.1) {
+                        resource.store(true, Ordering::Relaxed);
+                    }
+                });
+
+        let app = AppLoop {
+            world: universe.create_world(),
+            resources: resources_app,
+            schedule: Wrapper { item: Schedule::builder().add_system(test_system).build() },
+            events: Wrapper { item: consumer_app },
+            mtx: mtx.clone(),
+            barrier: barrier.clone(),
+            on_schedule_start: Vec::new(),
+            on_schedule_end: Vec::new(),
+        };
+        let sys = SysLoop {
+            world: universe.create_world(),
+            resources: resources_sys,
+            schedule: Wrapper { item: Schedule::builder().build() },
+            events: Wrapper { item: consumer_sys },
+            mtx: mtx.clone(),
+            barrier: barrier.clone(),
+            on_schedule_start: Vec::new(),
+            on_schedule_end: Vec::new(),
+            on_schedule_wait: Vec::new(),
+            update: |_, _| {},
+            run: run.clone(),
+        };
+
+        let app = Arc::new(app);
+        let sys = Arc::new(sys);
 
         Core {
-            root,
             universe,
-            loops: Vec::new(),
-            links: Vec::new(),
-            pools: Vec::new(),
-            pools_link: Vec::new(),
-            names: Vec::new(),
+            app,
+            sys,
+            pools,
+            barrier,
         }
     }
 
-    fn load_application(&mut self) {
-        self.names.push("Application".to_string());
-        self.pools.push(ThreadPoolBuilder::new().num_threads(1).build().unwrap());
-        self.loops.push(Arc::new(Loop::new(self.root.clone(), self.universe.create_world(), Resources::default(), Schedule::builder().build())));
-    }
+    fn start(&mut self) {
+        AppLoop::start(self.app.clone(), &self.pools[0]);
+        SysLoop::start(self.sys.clone(), self.app.clone(), &self.pools[1]);
 
-    fn load_systems(&mut self) {
-        self.names.push("Systems".to_string());
-        self.pools.push(ThreadPoolBuilder::new().num_threads(num_cpus::get() - 1).build().unwrap());
-        self.loops.push(Arc::new(Loop::new(self.root.clone(), self.universe.create_world(), Resources::default(), Schedule::builder().build())));
-    }
-
-    fn load_event_channels(&mut self) {
-        let i_app = self.names.iter().position(|x| *x == "Application".to_string()).unwrap();
-        let i_sys = self.names.iter().position(|x| *x == "Systems".to_string()).unwrap();
-
-        let mut loop_app = self.loops[i_app].clone();
-        let mut loop_sys = self.loops[i_sys].clone();
-
-        unsafe {
-            let sender_sys = loop_sys.resources.get::<Wrapper<Sender<LoopEvent>>>().unwrap();
-            Arc::get_mut_unchecked(&mut loop_app).resources.get_mut::<HashMap<String, Wrapper<Sender<LoopEvent>>>>().unwrap().insert(self.names[i_sys].clone(), sender_sys.clone());
-        }
-        unsafe {
-            let sender_app = loop_app.resources.get::<Wrapper<Sender<LoopEvent>>>().unwrap();
-            Arc::get_mut_unchecked(&mut loop_sys).resources.get_mut::<HashMap<String, Wrapper<Sender<LoopEvent>>>>().unwrap().insert(self.names[i_app].clone(), sender_app.clone());
-        }
-    }
-
-    fn load_link(&mut self) {
-        self.links.push(Link::new(self.root.clone(), &self.loops, &self.names, "Systems".to_string(), "Application".to_string(), |_, _| {}));
-        self.pools_link.push(ThreadPoolBuilder::new().num_threads(num_cpus::get()).build().unwrap());
-    }
-
-    fn run(&mut self) {
-        for (i, pool) in self.pools_link.iter().enumerate() {
-            self.links[i].start(pool);
-        }
-        for (i, pool) in self.pools.iter().enumerate() {
-            unsafe {
-                Arc::get_mut_unchecked(&mut self.loops[i]).start(pool);
-            }
-        }
-
-        self.root.wait();
+        self.barrier.wait();
     }
 }
 
 fn main() {
+    let mut core = Core::new();
+
+    core.start();
 }
