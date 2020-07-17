@@ -56,7 +56,7 @@ impl Loop {
         let (producer, receiver) = channel::<LoopEvent>();
 
         resources.insert(Wrapper { item: producer });
-        resources.insert(HashMap::<usize, Wrapper<Sender<LoopEvent>>>::new());
+        resources.insert(HashMap::<String, Wrapper<Sender<LoopEvent>>>::new());
 
         Loop {
             root,
@@ -218,11 +218,11 @@ impl Core {
 
         unsafe {
             let sender_sys = loop_sys.resources.get::<Wrapper<Sender<LoopEvent>>>().unwrap();
-            Arc::get_mut_unchecked(&mut loop_app).resources.get_mut::<HashMap<usize, Wrapper<Sender<LoopEvent>>>>().unwrap().insert(i_sys, sender_sys.clone());
+            Arc::get_mut_unchecked(&mut loop_app).resources.get_mut::<HashMap<String, Wrapper<Sender<LoopEvent>>>>().unwrap().insert(self.names[i_sys].clone(), sender_sys.clone());
         }
         unsafe {
             let sender_app = loop_app.resources.get::<Wrapper<Sender<LoopEvent>>>().unwrap();
-            Arc::get_mut_unchecked(&mut loop_sys).resources.get_mut::<HashMap<usize, Wrapper<Sender<LoopEvent>>>>().unwrap().insert(i_app, sender_app.clone());
+            Arc::get_mut_unchecked(&mut loop_sys).resources.get_mut::<HashMap<String, Wrapper<Sender<LoopEvent>>>>().unwrap().insert(self.names[i_app].clone(), sender_app.clone());
         }
     }
 
