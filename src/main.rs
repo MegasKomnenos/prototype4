@@ -76,10 +76,9 @@ impl AppLoop {
     fn start(mut app: Arc<AppLoop>, pool: &ThreadPool) {
         pool.spawn(move || {
             loop {
-                println!("App Waiting");
                 let app = unsafe { Arc::get_mut_unchecked(&mut app) };
                 let _guard = app.mtx.lock();
-                println!("App Starting");
+                
                 for func in app.on_schedule_start.iter() {
                     func(&mut app.world, &mut app.resources, &app.events.item);
                 }
@@ -89,7 +88,6 @@ impl AppLoop {
                 for func in app.on_schedule_end.iter() {
                     func(&mut app.world, &mut app.resources, &app.events.item);
                 }
-                println!("App Ending");
             }
 
             app.barrier.wait();
@@ -118,8 +116,6 @@ impl SysLoop {
 
             loop {
                 if sys.run.load(Ordering::Relaxed) {
-                    println!("Sys Starting");
-                    
                     sys.run.store(false, Ordering::Relaxed);
 
                     for func in sys.on_schedule_start.iter() {
@@ -131,18 +127,12 @@ impl SysLoop {
                     for func in sys.on_schedule_end.iter() {
                         func(&mut sys.world, &mut sys.resources, &sys.events.item);
                     }
-
-                    println!("Sys Update Waiting");
         
                     let _guard = sys.mtx.lock();
-
-                    println!("Sys Update Starting");
         
                     let app = unsafe { Arc::get_mut_unchecked(&mut app) };
         
                     (sys.update)(app, &sys);
-
-                    println!("Sys Ending");
                 } else {
                     for func in sys.on_schedule_wait.iter() {
                         func(&mut sys.world, &mut sys.resources, &sys.events.item);
