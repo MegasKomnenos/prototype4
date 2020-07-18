@@ -75,8 +75,9 @@ struct AppLoop {
 impl AppLoop {
     fn start(mut app: Arc<AppLoop>, pool: &ThreadPool) {
         pool.spawn(move || {
+            let app = unsafe { Arc::get_mut_unchecked(&mut app) };
+
             loop {
-                let app = unsafe { Arc::get_mut_unchecked(&mut app) };
                 let _guard = app.mtx.lock();
                 
                 for func in app.on_schedule_start.iter() {
