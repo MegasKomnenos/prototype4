@@ -7,6 +7,7 @@ use legion::entity::Entity;
 use legion::systems::SystemBuilder;
 use legion::systems::resource::Resources;
 use legion::systems::schedule::Schedule;
+use legion::systems::schedule::Step;
 use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
 
@@ -23,6 +24,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::mpsc::channel;
 use std::collections::HashMap;
 use std::any::Any;
+use std::mem;
 
 enum LoopEvent {
     RemoveEntity(Entity),
@@ -58,6 +60,15 @@ fn handle_event(world: &mut World, resources: &mut Resources, events: &Receiver<
                 func(resources, wrapper.item);
             }
         }
+    }
+}
+fn add_system<T: Into<Box<dyn Schedulable>>>(schedule: &mut Schedule, system: T) {
+    let vec = schedule.get_vec_mut();
+
+    if let Step::Systems(exec) = &mut vec[0] {
+        exec.add_system(system);
+    } else {
+        mem::replace(schedule, Schedule::builder().add_system(system).build());
     }
 }
 
@@ -173,18 +184,10 @@ impl Core {
 
         resources_app.insert(run.clone());
 
-        let test_system = SystemBuilder::new("Test System")
-                .write_resource::<Arc<AtomicBool>>()
-                .build(|_, _, resource, _| {
-                    if thread_rng().gen_bool(0.1) {
-                        resource.store(true, Ordering::Relaxed);
-                    }
-                });
-
         let app = AppLoop {
             world: universe.create_world(),
             resources: resources_app,
-            schedule: Wrapper { item: Schedule::builder().add_system(test_system).build() },
+            schedule: Wrapper { item: Schedule::builder().build() },
             events: Wrapper { item: consumer_app },
             mtx: mtx.clone(),
             barrier: barrier.clone(),

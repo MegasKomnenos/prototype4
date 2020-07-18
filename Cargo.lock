@@ -187,7 +187,7 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 [[package]]
 name = "legion"
 version = "0.2.4"
-source = "git+https://github.com/MegasKomnenos/legion#600f568f1e3403102c69c4acd3a7302a0f98b739"
+source = "git+https://github.com/MegasKomnenos/legion#b0ca1976aaa36f3d1e860a2a1f3bf48f3e1bee99"
 dependencies = [
  "legion-core",
  "legion-systems",
@@ -196,7 +196,7 @@ dependencies = [
 [[package]]
 name = "legion-core"
 version = "0.2.4"
-source = "git+https://github.com/MegasKomnenos/legion#600f568f1e3403102c69c4acd3a7302a0f98b739"
+source = "git+https://github.com/MegasKomnenos/legion#b0ca1976aaa36f3d1e860a2a1f3bf48f3e1bee99"
 dependencies = [
  "bit-set",
  "crossbeam-channel",
@@ -214,7 +214,7 @@ dependencies = [
 [[package]]
 name = "legion-systems"
 version = "0.2.4"
-source = "git+https://github.com/MegasKomnenos/legion#600f568f1e3403102c69c4acd3a7302a0f98b739"
+source = "git+https://github.com/MegasKomnenos/legion#b0ca1976aaa36f3d1e860a2a1f3bf48f3e1bee99"
 dependencies = [
  "bit-set",
  "crossbeam-channel",
