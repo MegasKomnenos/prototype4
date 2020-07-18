@@ -62,15 +62,6 @@ fn handle_event(world: &mut World, resources: &mut Resources, events: &Receiver<
         }
     }
 }
-fn add_system<T: Into<Box<dyn Schedulable>>>(schedule: &mut Schedule, system: T) {
-    let vec = schedule.get_vec_mut();
-
-    if let Step::Systems(exec) = &mut vec[0] {
-        exec.add_system(system);
-    } else {
-        mem::replace(schedule, Schedule::builder().add_system(system).build());
-    }
-}
 
 struct AppLoop {
     world: World,
