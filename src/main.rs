@@ -47,6 +47,37 @@ impl<T: Clone> Clone for Wrapper<T> {
 unsafe impl<T> Send for Wrapper<T> {}
 unsafe impl<T> Sync for Wrapper<T> {}
 
+enum ProvType {
+    Land,
+    Sea,
+}
+
+struct Owned { item: Entity }
+struct Owns { item: Vec<Entity> }
+struct Name { item: String }
+struct Pop;
+struct Activity;
+struct Size { item: f32 }
+struct Skill { item: HashMap<String, f32> }
+struct Stockpile { item: HashMap<String, f32> } 
+struct Price { item: HashMap<String, f32> }
+struct PriceChange { item: HashMap<String, f32> }
+struct Land { item: HashMap<String, f32> }
+struct Labor { item: HashMap<String, f32> }
+struct Income { item: HashMap<String, f32> }
+struct Spending { item: HashMap<String, f32> }
+struct IncomeChange { item: HashMap<String, f32> }
+struct SpendingChange { item: HashMap<String, f32> }
+struct Fulfillment { item: HashMap<String, f32> }
+struct Prov;
+struct Neighb { item: HashMap<Entity, ProvType> }
+struct Distance { item: HashMap<Entity, f32> }
+struct LandMax { item: HashMap<String, f32> }
+struct Heat { item: f32 }
+struct Rain { item: f32 }
+struct Inun { item: f32 } 
+struct Coord { item: [f32; 2] }
+
 fn handle_event(world: &mut World, resources: &mut Resources, events: &Receiver<LoopEvent>) {
     for event in events.try_iter() {
         match event {
