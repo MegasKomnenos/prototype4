@@ -2,6 +2,8 @@
 
 extern crate num_cpus;
 
+mod map;
+
 use legion::prelude::*;
 use legion::entity::Entity;
 use legion::systems::SystemBuilder;
@@ -24,7 +26,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::mpsc::channel;
 use std::collections::HashMap;
 use std::any::Any;
-use std::mem;
+use std::path::PathBuf;
 
 enum LoopEvent {
     RemoveEntity(Entity),
@@ -242,6 +244,10 @@ impl Core {
         }
     }
 
+    fn load_provinces(&mut self, map: PathBuf) {
+
+    }
+
     fn start(&mut self) {
         AppLoop::start(self.app.clone(), &self.pools[0]);
         SysLoop::start(self.sys.clone(), self.app.clone(), &self.pools[1]);
@@ -251,7 +257,7 @@ impl Core {
 }
 
 fn main() {
-    let mut core = Core::new();
+    let map = map::ProvBuilder::new(1024, 0.15, 0.6, 2., 0., 1., 0.1, 0.8);
 
-    core.start();
+    map.get_image("test.png");
 }
