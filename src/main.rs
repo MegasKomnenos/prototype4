@@ -259,15 +259,20 @@ impl Core {
 }
 
 fn main() {
-    let mut map = map::ProvBuilder::new(1024, 0.15, 0.6, 2., 0., 1., 0.1, 0.9, 16., 8., 12., (1., -5.), 1., 0.001,);
+    let mut map = map::ProvBuilder::new(512, 0.2, 0.6, 2., 0., 1., 0.1, 0.9, 16., 8., 12., (1., -5.), 1., 0.001, 2000);
 
     map.gen_heightmap();
-    map.gen_rainmap();
-    map.gen_tempmap();
-    map.gen_rivermap();
-
     map.export(&map.heightmap, "heightmap.png");
+
+    map.gen_rainmap();
     map.export(&map.rainmap, "rainmap.png");
+
+    map.gen_tempmap();
     map.export(&map.tempmap, "tempmap.png");
+
+    map.gen_rivermap();
     map.export(&map.rivermap, "rivermap.png");
+
+    map.gen_provmap();
+    map.export_provmap("provmap.png");
 }
