@@ -13,6 +13,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
 
 [[package]]
+name = "base64"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
+
+[[package]]
 name = "bit-set"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -323,7 +329,7 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 [[package]]
 name = "legion"
 version = "0.2.4"
-source = "git+https://github.com/MegasKomnenos/legion#b0ca1976aaa36f3d1e860a2a1f3bf48f3e1bee99"
+source = "git+https://github.com/MegasKomnenos/legion#a15e02710db36fc96f22a9254d74dbe4b4f07132"
 dependencies = [
  "legion-core",
  "legion-systems",
@@ -332,7 +338,7 @@ dependencies = [
 [[package]]
 name = "legion-core"
 version = "0.2.4"
-source = "git+https://github.com/MegasKomnenos/legion#b0ca1976aaa36f3d1e860a2a1f3bf48f3e1bee99"
+source = "git+https://github.com/MegasKomnenos/legion#a15e02710db36fc96f22a9254d74dbe4b4f07132"
 dependencies = [
  "bit-set",
  "crossbeam-channel",
@@ -350,7 +356,7 @@ dependencies = [
 [[package]]
 name = "legion-systems"
 version = "0.2.4"
-source = "git+https://github.com/MegasKomnenos/legion#b0ca1976aaa36f3d1e860a2a1f3bf48f3e1bee99"
+source = "git+https://github.com/MegasKomnenos/legion#a15e02710db36fc96f22a9254d74dbe4b4f07132"
 dependencies = [
  "bit-set",
  "crossbeam-channel",
@@ -597,6 +603,8 @@ dependencies = [
  "num_cpus",
  "rand 0.7.3",
  "rayon",
+ "ron",
+ "serde",
 ]
 
 [[package]]
@@ -718,6 +726,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41cc0f7e4d5d4544e8861606a285bb08d3e70712ccc7d2b84d7c0ccfaf4b05ce"
 
 [[package]]
+name = "ron"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a91260f321dbf3b5a16ff91c451dc9eb644ce72775a6812f9c3dfffe63818f8f"
+dependencies = [
+ "base64",
+ "bitflags",
+ "serde",
+]
+
+[[package]]
 name = "scoped_threadpool"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -728,6 +747,26 @@ name = "scopeguard"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
+
+[[package]]
+name = "serde"
+version = "1.0.114"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5317f7588f0a5078ee60ef675ef96735a1442132dc645eb1d12c018620ed8cd3"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.114"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a0be94b04690fbaed37cddffc5c134bf537c8e3329d53e982fe04c374978f8e"
+dependencies = [
+ "proc-macro2 1.0.18",
+ "quote 1.0.7",
+ "syn 1.0.34",
+]
 
 [[package]]
 name = "smallvec"

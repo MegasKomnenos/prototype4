@@ -9,9 +9,10 @@ use legion::entity::Entity;
 use legion::systems::SystemBuilder;
 use legion::systems::resource::Resources;
 use legion::systems::schedule::Schedule;
-use legion::systems::schedule::Step;
 use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
+
+use ron::ser::to_writer;
 
 use rand::thread_rng;
 use rand::Rng;
@@ -27,6 +28,7 @@ use std::sync::mpsc::channel;
 use std::collections::HashMap;
 use std::any::Any;
 use std::path::PathBuf;
+use std::fs::File;
 
 enum LoopEvent {
     RemoveEntity(Entity),
@@ -257,7 +259,13 @@ impl Core {
 }
 
 fn main() {
-    let map = map::ProvBuilder::new(1024, 0.15, 0.6, 2., 0., 1., 0.1, 0.8);
+    let mut map = map::ProvBuilder::new(256, 0.25, 0.6, 2., 0., 1., 0.1, 0.8, 16., 8., 12., (1., -5.), 1., 0.005);
 
-    map.get_image("test.png");
+    map.gen_heightmap();
+    map.gen_rainmap();
+    map.gen_tempmap();
+
+    map.export(&map.heightmap, "heightmap.png");
+    map.export(&map.rainmap, "rainmap.png");
+    map.export(&map.tempmap, "tempmap.png");
 }
