@@ -259,7 +259,7 @@ impl Core {
 }
 
 fn main() {
-    let mut map = map::ProvBuilder::new(256, 0.25, 0.6, 2., 0., 1., 0.1, 0.8, 16., 8., 12., (1., -5.), 1., 0.005, 1., 2., 2., 0.05, 0.001);
+    let mut map = map::ProvBuilder::new(512, 0.2, 0.6, 2., 0., 1., 0.1, 0.8, 16., 8., 12., (1., -5.), 1., 0.005,);
 
     map.gen_heightmap();
     map.gen_rainmap();

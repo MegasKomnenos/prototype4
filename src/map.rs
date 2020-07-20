@@ -7,6 +7,8 @@ use pathfinding::directed::dijkstra::dijkstra;
 
 use std::cmp::max;
 use std::collections::HashMap;
+use std::mem::swap;
+use std::ptr::write_bytes;
 use std::path::PathBuf;
 
 struct PerlinOctave {
@@ -77,11 +79,6 @@ pub struct ProvBuilder {
     rain_wind: (f64, f64),
     rain_height: f64,
     rain_fall: f64,
-    river_height: f64,
-    river_rain: f64,
-    river_spread: f64,
-    river_drill: f64,
-    river_drainage: f64,
 }
 
 impl ProvBuilder {
@@ -89,7 +86,6 @@ impl ProvBuilder {
         size: usize, freq: f64, pers: f64, lac: f64, min: f64, max: f64, water_level: f64, water_taper: f64, 
         temp_base: f64, temp_height: f64, temp_latitude: f64,
         rain_wind: (f64, f64), rain_height: f64, rain_fall: f64,
-        river_height: f64, river_rain: f64, river_spread: f64, river_drill: f64, river_drainage: f64,
     ) -> Self {
         let noise = PerlinOctave {
             noise: Perlin::new(),
@@ -116,11 +112,6 @@ impl ProvBuilder {
             rain_wind,
             rain_height,
             rain_fall,
-            river_height,
-            river_rain,
-            river_spread,
-            river_drill,
-            river_drainage
         }
     }
 
@@ -139,7 +130,7 @@ impl ProvBuilder {
                     _ => 0.,
                 };
 
-                self.heightmap.push(val * val);
+                self.heightmap.push(val * val * val);
             }
         }
     }
@@ -282,7 +273,7 @@ impl ProvBuilder {
                 }
             }
 
-            moist = moist_new;
+            swap(&mut moist, &mut moist_new);
         }
 
         let max = self.rainmap.iter().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
@@ -305,52 +296,45 @@ impl ProvBuilder {
         ];
 
         let mut river_drainage = vec![0; size * size];
-        let mut stack = Vec::new();
+        let mut height_ordered = self.heightmap
+            .iter()
+            .enumerate()
+            .filter(|(_, &height)| height > 0.)
+            .collect::<Vec<(usize, &f64)>>();
+        height_ordered.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
 
         loop {
-            if stack.is_empty() {
-                if let Some((i, _)) = self.heightmap
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, &height)| {
-                        height > 0. && river_drainage[*i] == 0
-                    })
-                    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()) 
-                {
-                    stack.push(i);
-                } else {
-                    break;
+            if let Some((i, _)) = height_ordered.pop() {
+                let (paths, _) = dijkstra(&i, 
+                    |&i| {
+                        let choices: Vec<(usize, usize)> = choices
+                            .iter()
+                            .map(|ii| {
+                                let ii = (i as isize + ii) as usize;
+                                (ii, (4f64.powf(self.heightmap[ii] - self.heightmap[i]) * 10.) as usize)
+                            })
+                            .collect();
+                        
+                        return choices;
+                    },
+                    |&i| {
+                        river_drainage[i] != 0 || self.heightmap[i] == 0.
+                    }
+                ).unwrap();
+                
+                for (i, &path) in paths.iter().enumerate() {
+                    if i + 1 < paths.len() {
+                        river_drainage[path] = paths[i + 1];
+                    }
                 }
-            }
-
-            let i = stack.pop().unwrap();
-            let (paths, _) = dijkstra(&i, 
-                |&i| {
-                    let choices: Vec<(usize, usize)> = choices
-                        .iter()
-                        .map(|ii| {
-                            let ii = (i as isize + ii) as usize;
-                            (ii, (4f64.powf(self.heightmap[ii] - self.heightmap[i]) * 10.) as usize)
-                        })
-                        .collect();
-                    
-                    return choices;
-                },
-                |&i| {
-                    river_drainage[i] != 0 || self.heightmap[i] == 0.
-                }
-            ).unwrap();
-            
-            for (i, &path) in paths.iter().enumerate() {
-                if i + 1 < paths.len() {
-                    river_drainage[path] = paths[i + 1];
-                }
+            } else {
+                break;
             }
         }
 
         self.rivermap = vec![0.; size * size];
 
-        for _ in 0..size*2 {
+        for _ in 0..size {
             let mut rivermap_new = vec![0.; size * size];
 
             for (i, &rain) in self.rainmap.iter().enumerate() {
@@ -364,7 +348,7 @@ impl ProvBuilder {
                 }
             }
 
-            self.rivermap = rivermap_new;
+            swap(&mut self.rivermap, &mut rivermap_new);
         }
 
         let mx = self.rivermap
