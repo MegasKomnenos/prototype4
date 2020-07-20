@@ -124,13 +124,13 @@ impl ProvBuilder {
 
         for y in 0..size {
             for x in 0..size {
-                let dist = ((med as f64 - x as f64).powi(2) + (med as f64 - y as f64).powi(2)).sqrt() / med as f64;
+                let dist = (((med as f64 - x as f64).powi(2) + (med as f64 - y as f64).powi(2)).sqrt() / med as f64).powi(2);
                 let val = match self.noise.get(x as f64, y as f64) - self.water_level - self.water_taper * dist {
                     x if x >= 0. => x / (1. - self.water_level),
                     _ => 0.,
                 };
 
-                self.heightmap.push(val * val * val);
+                self.heightmap.push(val * val);
             }
         }
     }
@@ -285,14 +285,14 @@ impl ProvBuilder {
         let size = self.noise.size;
 
         let choices = [
-            1,
-            -1 as isize,
-            size as isize,
-            -(size as isize),
-            1 + size as isize,
-            -1 + size as isize,
-            1 - (size as isize),
-            -1 - (size as isize),
+            (1, 1.),
+            (-1 as isize, 1.),
+            (size as isize, 1.),
+            (-(size as isize), 1.),
+            (1 + size as isize, 2f64.sqrt()),
+            (-1 + size as isize, 2f64.sqrt()),
+            (1 - (size as isize), 2f64.sqrt()),
+            (-1 - (size as isize), 2f64.sqrt()),
         ];
 
         let mut river_drainage = vec![0; size * size];
@@ -309,9 +309,9 @@ impl ProvBuilder {
                     |&i| {
                         let choices: Vec<(usize, usize)> = choices
                             .iter()
-                            .map(|ii| {
+                            .map(|(ii, c)| {
                                 let ii = (i as isize + ii) as usize;
-                                (ii, (4f64.powf(self.heightmap[ii] - self.heightmap[i]) * 10.) as usize)
+                                (ii, (c * 5f64.powf(self.heightmap[ii] - self.heightmap[i]) * 100.) as usize)
                             })
                             .collect();
                         
@@ -349,6 +349,10 @@ impl ProvBuilder {
             }
 
             swap(&mut self.rivermap, &mut rivermap_new);
+        }
+
+        for river in self.rivermap.iter_mut() {
+            *river = river.sqrt();
         }
 
         let mx = self.rivermap
