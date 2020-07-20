@@ -3,7 +3,10 @@ use noise::NoiseFn;
 use image::RgbImage;
 use image::Rgb;
 
+use pathfinding::directed::dijkstra::dijkstra;
+
 use std::cmp::max;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 struct PerlinOctave {
@@ -65,6 +68,7 @@ pub struct ProvBuilder {
     pub heightmap: Vec<f64>,
     pub tempmap: Vec<f64>,
     pub rainmap: Vec<f64>,
+    pub rivermap: Vec<f64>,
     water_level: f64,
     water_taper: f64,
     temp_base: f64,
@@ -73,6 +77,11 @@ pub struct ProvBuilder {
     rain_wind: (f64, f64),
     rain_height: f64,
     rain_fall: f64,
+    river_height: f64,
+    river_rain: f64,
+    river_spread: f64,
+    river_drill: f64,
+    river_drainage: f64,
 }
 
 impl ProvBuilder {
@@ -80,6 +89,7 @@ impl ProvBuilder {
         size: usize, freq: f64, pers: f64, lac: f64, min: f64, max: f64, water_level: f64, water_taper: f64, 
         temp_base: f64, temp_height: f64, temp_latitude: f64,
         rain_wind: (f64, f64), rain_height: f64, rain_fall: f64,
+        river_height: f64, river_rain: f64, river_spread: f64, river_drill: f64, river_drainage: f64,
     ) -> Self {
         let noise = PerlinOctave {
             noise: Perlin::new(),
@@ -97,6 +107,7 @@ impl ProvBuilder {
             heightmap: Vec::new(),
             tempmap: Vec::new(),
             rainmap: Vec::new(),
+            rivermap: Vec::new(),
             water_level,
             water_taper,
             temp_base,
@@ -105,6 +116,11 @@ impl ProvBuilder {
             rain_wind,
             rain_height,
             rain_fall,
+            river_height,
+            river_rain,
+            river_spread,
+            river_drill,
+            river_drainage
         }
     }
 
@@ -123,7 +139,7 @@ impl ProvBuilder {
                     _ => 0.,
                 };
 
-                self.heightmap.push(val);
+                self.heightmap.push(val * val);
             }
         }
     }
@@ -272,6 +288,94 @@ impl ProvBuilder {
         let max = self.rainmap.iter().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
         let min = self.rainmap.iter().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
         self.rainmap = self.rainmap.iter().map(|x| (x - min) / (max - min)).collect();
+    }
+
+    pub fn gen_rivermap(&mut self) {
+        let size = self.noise.size;
+
+        let choices = [
+            1,
+            -1 as isize,
+            size as isize,
+            -(size as isize),
+            1 + size as isize,
+            -1 + size as isize,
+            1 - (size as isize),
+            -1 - (size as isize),
+        ];
+
+        let mut river_drainage = vec![0; size * size];
+        let mut stack = Vec::new();
+
+        loop {
+            if stack.is_empty() {
+                if let Some((i, _)) = self.heightmap
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, &height)| {
+                        height > 0. && river_drainage[*i] == 0
+                    })
+                    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()) 
+                {
+                    stack.push(i);
+                } else {
+                    break;
+                }
+            }
+
+            let i = stack.pop().unwrap();
+            let (paths, _) = dijkstra(&i, 
+                |&i| {
+                    let choices: Vec<(usize, usize)> = choices
+                        .iter()
+                        .map(|ii| {
+                            let ii = (i as isize + ii) as usize;
+                            (ii, (4f64.powf(self.heightmap[ii] - self.heightmap[i]) * 10.) as usize)
+                        })
+                        .collect();
+                    
+                    return choices;
+                },
+                |&i| {
+                    river_drainage[i] != 0 || self.heightmap[i] == 0.
+                }
+            ).unwrap();
+            
+            for (i, &path) in paths.iter().enumerate() {
+                if i + 1 < paths.len() {
+                    river_drainage[path] = paths[i + 1];
+                }
+            }
+        }
+
+        self.rivermap = vec![0.; size * size];
+
+        for _ in 0..size*2 {
+            let mut rivermap_new = vec![0.; size * size];
+
+            for (i, &rain) in self.rainmap.iter().enumerate() {
+                if river_drainage[i] > 0 {
+                    rivermap_new[i] += rain;
+                }
+            }
+            for (i, &river) in river_drainage.iter().enumerate() {
+                if river > 0 {
+                    rivermap_new[river] += self.rivermap[i];
+                }
+            }
+
+            self.rivermap = rivermap_new;
+        }
+
+        let mx = self.rivermap
+            .iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .clone();
+        
+        for river in self.rivermap.iter_mut() {
+            *river /= mx;
+        }
     }
 
     pub fn export<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T) {
