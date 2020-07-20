@@ -424,7 +424,7 @@ impl ProvBuilder {
             }
         }
 
-        for count in 0..((self.prov_num as f64).cbrt() as usize + 2) {
+        for _ in 0..((self.prov_num as f64).sqrt() as usize + 2) {
             let mut provmap_new = Vec::new();
 
             for prov in 0..self.prov_num {
