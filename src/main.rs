@@ -259,7 +259,7 @@ impl Core {
 }
 
 fn main() {
-    let mut map = map::ProvBuilder::new(512, 0.2, 0.6, 2., 0., 1., 0.1, 0.9, 16., 8., 12., (1., -5.), 1., 0.001, 2000);
+    let mut map = map::ProvBuilder::new(512, 0.3, 0.6, 2., 0., 1., 0.1, 0.9, 16., 8., 12., (1., -5.), 1., 0.001, 2000);
 
     map.gen_heightmap();
     map.export(&map.heightmap, "heightmap.png");
