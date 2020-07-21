@@ -90,6 +90,8 @@ pub struct ProvBuilder {
     rain_wind: (f64, f64),
     rain_height: f64,
     rain_fall: f64,
+    water_river: f64,
+    water_rain: f64,
 }
 
 fn get_dist(i: usize, ii: usize, size: usize) -> f64 {
@@ -106,6 +108,7 @@ impl ProvBuilder {
         size: usize, freq: f64, pers: f64, lac: f64, min: f64, max: f64, water_level: f64, water_taper: f64, 
         temp_base: f64, temp_height: f64, temp_latitude: f64,
         rain_wind: (f64, f64), rain_height: f64, rain_fall: f64,
+        water_river: f64, water_rain: f64,
     ) -> Self {
         let noise = PerlinOctave {
             noise: Perlin::new(),
@@ -136,6 +139,8 @@ impl ProvBuilder {
             rain_wind: (rain_wind.0, -rain_wind.1),
             rain_height,
             rain_fall,
+            water_river,
+            water_rain,
         }
     }
 
@@ -432,7 +437,7 @@ impl ProvBuilder {
             if let Some(Water::Lake) = self.waters.get(&i) {
                 self.watermap[i] = 1.;
             } else if self.heightmap[i] > 0. {
-                self.watermap[i] = choices
+                let best_river = choices
                     .iter()
                     .map(|&(ii, _)| {
                         let ii = (i as isize + ii) as usize;
@@ -445,6 +450,22 @@ impl ProvBuilder {
                     })
                     .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
                     .unwrap();
+
+                let best_rain = choices
+                    .iter()
+                    .map(|&(ii, _)| {
+                        let ii = (i as isize + ii) as usize;
+
+                        if let Some(Water::Lake) = self.waters.get(&ii) {
+                            return 1.;
+                        } else {
+                            return self.rainmap[ii];
+                        }
+                    })
+                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
+                    .unwrap();
+                
+                self.watermap[i] = (best_river * self.water_river + best_rain * self.water_rain) / (self.water_river + self.water_rain);
             }
         }
     }
