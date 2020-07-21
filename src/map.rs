@@ -306,13 +306,17 @@ impl ProvBuilder {
 
             for (i, &ii) in line.iter().enumerate() {
                 if i > 0 {
-                    let rainfall = rain * (self.rain_fall + match 2f64.powf(self.heightmap[ii] - self.heightmap[line[i-1]]) - 1. {
+                    let rainfall = rain * match 2f64.powf(self.heightmap[ii] - self.heightmap[line[i-1]]) - 1. {
                         x if x > 0. => x * self.rain_height,
                         _ => 0.,
-                    });
+                    };
+                    let droplets = match self.heightmap[ii] {
+                        x if x > 0. => rain * rain * self.rain_fall * (x + 1.) / 2.,
+                        _ => 0.,
+                    };
 
-                    self.rainmap[ii] = rainfall;
-                    rain -= rainfall;
+                    self.rainmap[ii] = rainfall + droplets;
+                    rain -= rainfall + droplets;
                 }
             }
         }
