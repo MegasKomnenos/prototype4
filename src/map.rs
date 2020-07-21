@@ -93,6 +93,11 @@ impl Ord for HeapItem {
     }
 }
 
+pub enum Water {
+    Sea,
+    Lake
+}
+
 pub struct ProvBuilder {
     noise: PerlinOctave,
     pub heightmap: Vec<f64>,
@@ -100,6 +105,7 @@ pub struct ProvBuilder {
     pub rainmap: Vec<f64>,
     pub rivermap: Vec<f64>,
     pub provmap: Vec<usize>,
+    pub waters: HashMap<usize, Water>,
     water_level: f64,
     water_taper: f64,
     temp_base: f64,
@@ -136,6 +142,7 @@ impl ProvBuilder {
             rainmap: Vec::new(),
             rivermap: Vec::new(),
             provmap: Vec::new(),
+            waters: HashMap::new(),
             water_level,
             water_taper,
             temp_base,
@@ -164,6 +171,43 @@ impl ProvBuilder {
                 };
 
                 self.heightmap.push(val * val);
+            }
+        }
+    }
+
+    pub fn gen_waters(&mut self) {
+        let size = self.noise.size;
+        let mut stack = Vec::new();
+
+        stack.push(0);
+        self.waters.clear();
+
+        while !stack.is_empty() {
+            let i = stack.pop().unwrap();
+
+            if self.waters.contains_key(&i) || self.heightmap[i] > 0. {
+                continue;
+            }
+
+            self.waters.insert(i, Water::Sea);
+
+            if (i + 1) % size > 0 {
+                stack.push(i + 1);
+            }
+            if i % size > 0 {
+                stack.push(i - 1);
+            }
+            if i >= size {
+                stack.push(i - size);
+            }
+            if i + size < size * size {
+                stack.push(i + size);
+            }
+        }
+
+        for (i, &height) in self.heightmap.iter().enumerate() {
+            if height == 0. && !self.waters.contains_key(&i) {
+                self.waters.insert(i, Water::Lake);
             }
         }
     }
@@ -344,14 +388,23 @@ impl ProvBuilder {
                             .iter()
                             .map(|(ii, c)| {
                                 let ii = (i as isize + ii) as usize;
-                                (ii, (100. * c * (5f64.powf(self.heightmap[ii] - self.heightmap[i]) - 0.2)) as usize)
+                                (ii, (10000. * c * (self.heightmap[ii] / (self.heightmap[i] + 0.001))) as usize)
                             })
                             .collect();
                         
                         return choices;
                     },
                     |&i| {
-                        river_drainage[i] != 0 || self.heightmap[i] == 0.
+                        if river_drainage[i] != 0 {
+                            return true;
+                        } else if let Some(water) = self.waters.get(&i) {
+                            match water {
+                                Water::Lake => return false,
+                                Water::Sea => return true,
+                            };
+                        }
+
+                        return false;
                     }
                 ).unwrap();
                 
@@ -424,7 +477,7 @@ impl ProvBuilder {
             }
         }
 
-        for _ in 0..((self.prov_num as f64).sqrt() as usize + 2) {
+        for _ in 0..((self.prov_num as f64).sqrt() as usize + 5) {
             let mut provmap_new = Vec::new();
 
             for prov in 0..self.prov_num {
@@ -470,7 +523,7 @@ impl ProvBuilder {
                     .iter()
                     .map(|(ii, c)| {
                         let ii = (i as isize + ii) as usize;
-                        (ii, c * (50f64.powf((self.heightmap[ii] - self.heightmap[i]).abs()) - 1.))
+                        (ii, c * (self.heightmap[i] - self.heightmap[ii]).abs() / (self.heightmap[i] + self.heightmap[ii]))
                     })
                     .filter(|&(ii, _)| self.heightmap[ii] > 0.)
                     .collect();
@@ -501,6 +554,28 @@ impl ProvBuilder {
                 i += 1;
 
                 img.put_pixel(x as u32, y as u32, Rgb([val, val, val]));
+            }
+        }
+
+        img.save(path.into()).unwrap();
+    }
+
+    pub fn export_waters<T: Into<PathBuf>>(&self, path: T) {
+        let mut i = 0;
+        let mut img = RgbImage::new(self.noise.size as u32, self.noise.size as u32);
+
+        for y in 0..self.noise.size {
+            for x in 0..self.noise.size {
+                if let Some(water) = self.waters.get(&i) {
+                    match water {
+                        Water::Lake => img.put_pixel(x as u32, y as u32, Rgb([128, 128, 128])),
+                        Water::Sea => img.put_pixel(x as u32, y as u32, Rgb([255, 255, 255])),
+                    }
+                } else {
+                    img.put_pixel(x as u32, y as u32, Rgb([0, 0, 0]));
+                }
+
+                i += 1;
             }
         }
 

@@ -263,6 +263,9 @@ fn main() {
 
     map.gen_heightmap();
     map.export(&map.heightmap, "heightmap.png");
+    
+    map.gen_waters();
+    map.export_waters("waters.png");
 
     map.gen_rainmap();
     map.export(&map.rainmap, "rainmap.png");
