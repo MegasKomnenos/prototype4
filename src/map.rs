@@ -118,7 +118,7 @@ impl ProvBuilder {
             temp_base,
             temp_height,
             temp_latitude,
-            rain_wind,
+            rain_wind: (rain_wind.0, -rain_wind.1),
             rain_height,
             rain_fall,
         }
@@ -202,124 +202,99 @@ impl ProvBuilder {
 
     pub fn gen_rainmap(&mut self) {
         let size = self.noise.size;
-        let sizei = size as isize;
 
-        let mut flows = Vec::new();
+        let mut lines = Vec::new();
 
-        if self.rain_wind.0 > 0. {
-            if self.rain_wind.1 >= 0. {
-                let upper = self.rain_wind.1 / (self.rain_wind.0 + self.rain_wind.1);
-                let upper_right = 1. - (self.rain_wind.0 - self.rain_wind.1).abs() / (self.rain_wind.0 + self.rain_wind.1);
-                let right = self.rain_wind.0 / (self.rain_wind.0 + self.rain_wind.1);
-                let sm = upper + upper_right + right;
+        if self.rain_wind.0 == 0. {
+            for x in 0..size {
+                let mut line = Vec::new();
 
-                flows.push((sizei, upper / sm));
-                flows.push((sizei + 1, upper_right / sm));
-                flows.push((1, right / sm));
-            } else if self.rain_wind.1 == 0. {
-                flows.push((1, 1.));
-            } else {
-                let lower = -self.rain_wind.1 / (self.rain_wind.0 - self.rain_wind.1);
-                let lower_right = 1. - (self.rain_wind.0 + self.rain_wind.1).abs() / (self.rain_wind.0 - self.rain_wind.1);
-                let right = self.rain_wind.0 / (self.rain_wind.0 - self.rain_wind.1);
-                let sm = lower + lower_right + right;
+                for y in 0..size {
+                    line.push(x + y * size);
+                }
 
-                flows.push((-sizei, lower / sm));
-                flows.push((-sizei + 1, lower_right / sm));
-                flows.push((1, right / sm));
+                if self.rain_wind.1 < 0. {
+                    line.reverse();
+                }
+
+                lines.push(line);
             }
-        } else if self.rain_wind.0 < 0. {
-            if self.rain_wind.1 >= 0. {
-                let upper = self.rain_wind.1 / (-self.rain_wind.0 + self.rain_wind.1);
-                let upper_left = 1. - (-self.rain_wind.0 - self.rain_wind.1).abs() / (-self.rain_wind.0 + self.rain_wind.1);
-                let left = -self.rain_wind.0 / (-self.rain_wind.0 + self.rain_wind.1);
-                let sm = upper + upper_left + left;
+        } else if self.rain_wind.1 == 0. {
+            for y in 0..size {
+                let mut line = Vec::new();
 
-                flows.push((sizei, upper / sm));
-                flows.push((sizei - 1, upper_left / sm));
-                flows.push((-1, left / sm));
-            } else if self.rain_wind.1 == 0. {
-                flows.push((-1, 1.));
-            } else {
-                let lower = -self.rain_wind.1 / (-self.rain_wind.0 - self.rain_wind.1);
-                let lower_left = 1. - (-self.rain_wind.0 + self.rain_wind.1).abs() / (-self.rain_wind.0 - self.rain_wind.1);
-                let left = -self.rain_wind.0 / (-self.rain_wind.0 - self.rain_wind.1);
-                let sm = lower + lower_left + left;
+                for x in 0..size {
+                    line.push(x + y * size);
+                }
 
-                flows.push((-sizei, lower / sm));
-                flows.push((-sizei - 1, lower_left / sm));
-                flows.push((-1, left / sm));
+                if self.rain_wind.0 < 0. {
+                    line.reverse();
+                }
+
+                lines.push(line);
             }
         } else {
-            if self.rain_wind.1 > 0. {
-                flows.push((sizei, 1.));
-            } else if self.rain_wind.1 < 0. {
-                flows.push((-sizei, 1.));
+            let start: i64;
+            let end: i64;
+
+            let steep = self.rain_wind.1 / self.rain_wind.0;
+
+            if steep >= 0. {
+                start = -(size as f64 / steep) as i64;
+                end = size as i64;
+            } else {
+                start = 0;
+                end = -(size as f64 / steep) as i64 + size as i64;
+            }
+
+            for i in start..end {
+                let mut line = Vec::new();
+                let mut x = i;
+                let mut y = 0;
+                let mut res = 0.;
+
+                while y < size {
+                    if x >= 0 && x < size as i64 {
+                        line.push(x as usize + y * size);
+                    }
+
+                    x += steep.signum() as i64;
+                    res += steep.abs();
+
+                    while res >= 1. {
+                        res -= 1.;
+                        y += 1;
+
+                        if x >= 0 && x < size as i64 && y < size && res >= 1. {
+                            line.push(x as usize + y * size);
+                        }
+                    }
+                }
+
+                if (steep > 0. && self.rain_wind.0 < 0.) || (steep < 0. && self.rain_wind.1 < 0.) {
+                    line.reverse();
+                }
+
+                lines.push(line);
             }
         }
 
-        let mut moist = vec![0.; size * size];
+        self.rainmap = vec![0.; size * size];
 
-        let mut i = 0;
+        for line in lines.iter() {
+            let mut rain = 1.;
 
-        for y in 0..size {
-            for x in 0..size {
-                if x <= 1 || x + 2 >= size || y <= 1 || y + 2 >= size {
-                    moist[i] = 1.;
-                }
+            for (i, &ii) in line.iter().enumerate() {
+                if i > 0 {
+                    let rainfall = rain * (self.rain_fall + match 2f64.powf(self.heightmap[ii] - self.heightmap[line[i-1]]) - 1. {
+                        x if x > 0. => x * self.rain_height,
+                        _ => 0.,
+                    });
 
-                i += 1;
-            }
-        }
-
-        for _ in 0..size*2 {
-            self.rainmap = vec![0.; size * size];
-            let mut moist_new = vec![0.; size * size];
-
-            let mut i = 0;
-
-            for y in 0..size {
-                for x in 0..size {
-                    if x == 0 || x + 1 == size || y == 0 || y + 1 == size {
-                        i += 1;
-
-                        continue;
-                    }
-
-                    let rain = moist[i] * self.rain_fall;
-
-                    self.rainmap[i] += rain;
-                    moist[i] -= rain;
-
-                    for flow in flows.iter() {
-                        let ii = (i as isize + flow.0) as usize;
-                        let moist_move = moist[i] * flow.1;
-                        let rain = match 2f64.powf(self.heightmap[ii] - self.heightmap[i]) - 1. {
-                            x if x > 0. => x * self.rain_height,
-                            _ => 0.,
-                        };
-
-                        moist_new[ii] += moist_move * (1. - rain);
-                        self.rainmap[ii] += moist_move * rain;
-                    }
-
-                    i += 1;
+                    self.rainmap[ii] = rainfall;
+                    rain -= rainfall;
                 }
             }
-
-            let mut i = 0;
-
-            for y in 0..size {
-                for x in 0..size {
-                    if x <= 1 || x + 2 >= size || y <= 1 || y + 2 >= size {
-                        moist_new[i] = 1.;
-                    }
-
-                    i += 1;
-                }
-            }
-
-            swap(&mut moist, &mut moist_new);
         }
 
         let max = self.rainmap.iter().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
@@ -419,6 +394,10 @@ impl ProvBuilder {
         for river in self.rivermap.iter_mut() {
             *river /= mx;
         }
+    }
+
+    pub fn gen_vegetmap(&mut self) {
+
     }
 
     pub fn export<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T) {
