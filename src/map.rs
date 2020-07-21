@@ -78,7 +78,10 @@ pub struct ProvBuilder {
     pub tempmap: Vec<f64>,
     pub rainmap: Vec<f64>,
     pub rivermap: Vec<f64>,
+    pub watermap: Vec<f64>,
     pub waters: HashMap<usize, Water>,
+    pub shrubs: Vec<f64>,
+    pub trees: Vec<f64>,
     water_level: f64,
     water_taper: f64,
     temp_base: f64,
@@ -87,6 +90,15 @@ pub struct ProvBuilder {
     rain_wind: (f64, f64),
     rain_height: f64,
     rain_fall: f64,
+}
+
+fn get_dist(i: usize, ii: usize, size: usize) -> f64 {
+    let x_i = (i % size) as f64;
+    let y_i = (i / size) as f64;
+    let x_ii = (ii % size) as f64;
+    let y_ii = (ii / size) as f64;
+
+    return ((x_i - x_ii).powi(2) + (y_i - y_ii).powi(2)).sqrt();
 }
 
 impl ProvBuilder {
@@ -112,7 +124,10 @@ impl ProvBuilder {
             tempmap: Vec::new(),
             rainmap: Vec::new(),
             rivermap: Vec::new(),
+            watermap: Vec::new(),
             waters: HashMap::new(),
+            shrubs: Vec::new(),
+            trees: Vec::new(),
             water_level,
             water_taper,
             temp_base,
@@ -396,9 +411,55 @@ impl ProvBuilder {
         }
     }
 
-    pub fn gen_vegetmap(&mut self) {
+    pub fn gen_watermap(&mut self) {
+        let size = self.noise.size;
 
+        let choices = [
+            (0, 0.),
+            (1, 1.),
+            (-1 as isize, 1.),
+            (size as isize, 1.),
+            (-(size as isize), 1.),
+            (1 + size as isize, 2f64.sqrt()),
+            (-1 + size as isize, 2f64.sqrt()),
+            (1 - (size as isize), 2f64.sqrt()),
+            (-1 - (size as isize), 2f64.sqrt()),
+        ];
+
+        self.watermap = vec![0.; size * size];
+
+        for i in 0..size*size {
+            if let Some(Water::Lake) = self.waters.get(&i) {
+                self.watermap[i] = 1.;
+            } else if self.heightmap[i] > 0. {
+                self.watermap[i] = choices
+                    .iter()
+                    .map(|&(ii, _)| {
+                        let ii = (i as isize + ii) as usize;
+
+                        if let Some(Water::Lake) = self.waters.get(&ii) {
+                            return 1.;
+                        } else {
+                            return self.rivermap[ii];
+                        }
+                    })
+                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
+                    .unwrap();
+            }
+        }
     }
+    /*
+    pub fn gen_vegetmap(&mut self) {
+        let size = self.noise.size;
+
+        self.shrubs = Vec::new();
+        self.trees = Vec::new();
+
+        for i in 0..size*size {
+            self.shrubs.push()
+        }
+    }
+    */
 
     pub fn export<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T) {
         let mut i = 0;
