@@ -67,32 +67,6 @@ impl PerlinOctave {
     }
 }
 
-struct HeapItem {
-    prov: usize,
-    i: usize,
-    c: f64,
-}
-
-impl PartialEq for HeapItem {
-    fn eq(&self, other: &Self) -> bool {
-        self.c.eq(&other.c)
-    }
-}
-
-impl Eq for HeapItem {}
-
-impl PartialOrd for HeapItem {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        other.c.partial_cmp(&self.c)
-    }
-}
-
-impl Ord for HeapItem {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.c.partial_cmp(&self.c).unwrap_or(Ordering::Equal)
-    }
-}
-
 pub enum Water {
     Sea,
     Lake
@@ -104,7 +78,6 @@ pub struct ProvBuilder {
     pub tempmap: Vec<f64>,
     pub rainmap: Vec<f64>,
     pub rivermap: Vec<f64>,
-    pub provmap: Vec<usize>,
     pub waters: HashMap<usize, Water>,
     water_level: f64,
     water_taper: f64,
@@ -114,7 +87,6 @@ pub struct ProvBuilder {
     rain_wind: (f64, f64),
     rain_height: f64,
     rain_fall: f64,
-    prov_num: usize,
 }
 
 impl ProvBuilder {
@@ -122,7 +94,6 @@ impl ProvBuilder {
         size: usize, freq: f64, pers: f64, lac: f64, min: f64, max: f64, water_level: f64, water_taper: f64, 
         temp_base: f64, temp_height: f64, temp_latitude: f64,
         rain_wind: (f64, f64), rain_height: f64, rain_fall: f64,
-        prov_num: usize,
     ) -> Self {
         let noise = PerlinOctave {
             noise: Perlin::new(),
@@ -141,7 +112,6 @@ impl ProvBuilder {
             tempmap: Vec::new(),
             rainmap: Vec::new(),
             rivermap: Vec::new(),
-            provmap: Vec::new(),
             waters: HashMap::new(),
             water_level,
             water_taper,
@@ -151,7 +121,6 @@ impl ProvBuilder {
             rain_wind,
             rain_height,
             rain_fall,
-            prov_num,
         }
     }
 
@@ -452,93 +421,6 @@ impl ProvBuilder {
         }
     }
 
-    pub fn gen_provmap(&mut self) {
-        let size = self.noise.size;
-        let mut rng = rand::thread_rng();
-
-        let choices = [
-            (1, 1.),
-            (-1 as isize, 1.),
-            (size as isize, 1.),
-            (-(size as isize), 1.),
-        ];
-
-        self.provmap = vec![self.prov_num; size * size];
-
-        for prov in 0..self.prov_num { 
-            loop {
-                let i = rng.gen_range(0, size * size);
-
-                if self.heightmap[i] > 0. && self.provmap[i] == self.prov_num {
-                    self.provmap[i] = prov;
-
-                    break;
-                }
-            }
-        }
-
-        for _ in 0..((self.prov_num as f64).sqrt() as usize + 5) {
-            let mut provmap_new = Vec::new();
-
-            for prov in 0..self.prov_num {
-                let provs = self.provmap
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, &p)| p == prov)
-                    .collect::<Vec<(usize, &usize)>>();
-                
-                let mut x = 0;
-                let mut y = 0;
-                let mut weight = 0;
-
-                for (i, _) in provs.iter() {
-                    x += i % size;
-                    y += i / size;
-                    weight += 1;
-                }
-
-                if weight > 0 {
-                    x /= weight;
-                    y /= weight;
-
-                    provmap_new.push(y * size + x);
-                }
-            }
-
-            let mut q = BinaryHeap::new();
-            let mut costs = vec![f64::MAX; size * size];
-
-            self.provmap = vec![self.prov_num; size * size];
-
-            for (prov, &i) in provmap_new.iter().enumerate() {
-                q.push(HeapItem { prov, i, c: 0. });
-                self.provmap[i] = prov;
-                costs[i] = 0.;
-            }
-
-            while !q.is_empty() {
-                let HeapItem { prov, i, c } = q.pop().unwrap();
-
-                let choices: Vec<(usize, f64)> = choices
-                    .iter()
-                    .map(|(ii, c)| {
-                        let ii = (i as isize + ii) as usize;
-                        (ii, c * (self.heightmap[i] - self.heightmap[ii]).abs() / (self.heightmap[i] + self.heightmap[ii]))
-                    })
-                    .filter(|&(ii, _)| self.heightmap[ii] > 0.)
-                    .collect();
-                
-                for &(ii, cc) in choices.iter() {
-                    if self.provmap[ii] == self.prov_num || costs[ii] > c + cc {
-                        q.push(HeapItem { prov, i: ii, c: c + cc });
-                        self.provmap[ii] = prov;
-                        costs[ii] = c + cc;
-                    }
-                }
-            }
-        }
-    }
-
     pub fn export<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T) {
         let mut i = 0;
         let mut img = RgbImage::new(self.noise.size as u32, self.noise.size as u32);
@@ -576,48 +458,6 @@ impl ProvBuilder {
                 }
 
                 i += 1;
-            }
-        }
-
-        img.save(path.into()).unwrap();
-    }
-
-    pub fn export_provmap<T: Into<PathBuf>>(&self, path: T) {
-        let mut i = 0;
-        let mut img = RgbImage::new(self.noise.size as u32, self.noise.size as u32);
-        let mut rng = rand::thread_rng();
-        let mut prov_to_rgb = HashMap::new();
-        let mut rgb_to_prov = HashMap::new();
-
-        let prov = self.prov_num;
-        let rgb = Rgb([255, 255, 255]);
-
-        prov_to_rgb.insert(prov, rgb);
-        rgb_to_prov.insert(rgb, prov);
-
-        for prov in 0..self.prov_num  {
-            loop {
-                let rgb = Rgb([rng.gen_range(0, 255), rng.gen_range(0, 255), rng.gen_range(0, 255)]);
-
-                if rgb_to_prov.contains_key(&rgb) {
-                    continue;
-                }
-
-                prov_to_rgb.insert(prov, rgb);
-                rgb_to_prov.insert(rgb, prov);
-
-                break;
-            }
-        }
-
-        for y in 0..self.noise.size {
-            for x in 0..self.noise.size {
-                let prov = self.provmap[i];
-                let rgb = prov_to_rgb.get(&prov).unwrap();
-
-                i += 1;
-
-                img.put_pixel(x as u32, y as u32, rgb.clone());
             }
         }
 
