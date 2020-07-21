@@ -2,15 +2,14 @@ use noise::Perlin;
 use noise::NoiseFn;
 use image::RgbImage;
 use image::Rgb;
+use num::clamp;
 
 use pathfinding::directed::dijkstra::dijkstra;
 
 use rand::Rng;
 
 use std::mem::swap;
-use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::collections::BinaryHeap;
 use std::path::PathBuf;
 
 struct PerlinOctave {
@@ -80,8 +79,7 @@ pub struct ProvBuilder {
     pub rivermap: Vec<f64>,
     pub watermap: Vec<f64>,
     pub waters: HashMap<usize, Water>,
-    pub shrubs: Vec<f64>,
-    pub trees: Vec<f64>,
+    pub vegetmap: Vec<f64>,
     water_level: f64,
     water_taper: f64,
     temp_base: f64,
@@ -90,24 +88,16 @@ pub struct ProvBuilder {
     rain_wind: (f64, f64),
     rain_height: f64,
     rain_fall: f64,
+    rain_recover: f64,
     water_river: f64,
     water_rain: f64,
-}
-
-fn get_dist(i: usize, ii: usize, size: usize) -> f64 {
-    let x_i = (i % size) as f64;
-    let y_i = (i / size) as f64;
-    let x_ii = (ii % size) as f64;
-    let y_ii = (ii / size) as f64;
-
-    return ((x_i - x_ii).powi(2) + (y_i - y_ii).powi(2)).sqrt();
 }
 
 impl ProvBuilder {
     pub fn new(
         size: usize, freq: f64, pers: f64, lac: f64, min: f64, max: f64, water_level: f64, water_taper: f64, 
         temp_base: f64, temp_height: f64, temp_latitude: f64,
-        rain_wind: (f64, f64), rain_height: f64, rain_fall: f64,
+        rain_wind: (f64, f64), rain_height: f64, rain_fall: f64, rain_recover: f64,
         water_river: f64, water_rain: f64,
     ) -> Self {
         let noise = PerlinOctave {
@@ -129,8 +119,7 @@ impl ProvBuilder {
             rivermap: Vec::new(),
             watermap: Vec::new(),
             waters: HashMap::new(),
-            shrubs: Vec::new(),
-            trees: Vec::new(),
+            vegetmap: Vec::new(),
             water_level,
             water_taper,
             temp_base,
@@ -139,6 +128,7 @@ impl ProvBuilder {
             rain_wind: (rain_wind.0, -rain_wind.1),
             rain_height,
             rain_fall,
+            rain_recover,
             water_river,
             water_rain,
         }
@@ -311,12 +301,14 @@ impl ProvBuilder {
                         _ => 0.,
                     };
                     let droplets = match self.heightmap[ii] {
-                        x if x > 0. => rain * rain * self.rain_fall * (x + 1.) / 2.,
+                        x if x > 0. => rain.powf(1.5) * self.rain_fall * (x + 1.) / 2.,
                         _ => 0.,
                     };
 
                     self.rainmap[ii] = rainfall + droplets;
                     rain -= rainfall + droplets;
+                    rain += self.rain_recover;
+                    rain = clamp(rain, 0., 1.);
                 }
             }
         }
@@ -422,17 +414,36 @@ impl ProvBuilder {
 
     pub fn gen_watermap(&mut self) {
         let size = self.noise.size;
+        let sizei = size as isize;
 
         let choices = [
             (0, 0.),
             (1, 1.),
-            (-1 as isize, 1.),
-            (size as isize, 1.),
-            (-(size as isize), 1.),
-            (1 + size as isize, 2f64.sqrt()),
-            (-1 + size as isize, 2f64.sqrt()),
-            (1 - (size as isize), 2f64.sqrt()),
-            (-1 - (size as isize), 2f64.sqrt()),
+            (-1, 1.),
+            (sizei, 1.),
+            (-sizei, 1.),
+            (1 + sizei, 2f64.sqrt()),
+            (-1 + sizei, 2f64.sqrt()),
+            (1 - sizei, 2f64.sqrt()),
+            (-1 - sizei, 2f64.sqrt()),
+        ];
+        let choices2 = [
+            (2, 1.),
+            (2 + sizei, 1.),
+            (2 + sizei * 2, 1.),
+            (1 + sizei * 2, 1.),
+            (sizei * 2, 1.),
+            (sizei * 2 - 1, 1.),
+            (sizei * 2 - 2, 1.),
+            (sizei - 2, 1.),
+            (-2, 1.),
+            (-2 - sizei, 1.),
+            (-2 - 2 * sizei, 1.),
+            (-1 - 2 * sizei, 1.),
+            (-2 * sizei, 1.),
+            (1 - 2 * sizei, 1.),
+            (2 - 2 * sizei, 1.),
+            (2 - 1 * sizei, 1.),
         ];
 
         self.watermap = vec![0.; size * size];
@@ -441,7 +452,7 @@ impl ProvBuilder {
             if let Some(Water::Lake) = self.waters.get(&i) {
                 self.watermap[i] = 1.;
             } else if self.heightmap[i] > 0. {
-                let best_river = choices
+                let mut best_river = choices
                     .iter()
                     .map(|&(ii, _)| {
                         let ii = (i as isize + ii) as usize;
@@ -454,8 +465,21 @@ impl ProvBuilder {
                     })
                     .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
                     .unwrap();
+                let second_best_river = choices2
+                    .iter()
+                    .map(|&(ii, _)| {
+                        let ii = (i as isize + ii) as usize;
 
-                let best_rain = choices
+                        if let Some(Water::Lake) = self.waters.get(&ii) {
+                            return 0.5;
+                        } else {
+                            return self.rivermap[ii] / 2.;
+                        }
+                    })
+                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
+                    .unwrap();
+
+                let mut best_rain = choices
                     .iter()
                     .map(|&(ii, _)| {
                         let ii = (i as isize + ii) as usize;
@@ -468,23 +492,51 @@ impl ProvBuilder {
                     })
                     .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
                     .unwrap();
+                let second_best_rain = choices2
+                    .iter()
+                    .map(|&(ii, _)| {
+                        let ii = (i as isize + ii) as usize;
+
+                        if let Some(Water::Lake) = self.waters.get(&ii) {
+                            return 0.5;
+                        } else {
+                            return self.rainmap[ii] / 2.;
+                        }
+                    })
+                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
+                    .unwrap();
+                
+                if best_river < second_best_river {
+                    best_river = second_best_river;
+                }
+                if best_rain < second_best_rain {
+                    best_rain = second_best_rain;
+                }
                 
                 self.watermap[i] = (best_river * self.water_river + best_rain * self.water_rain) / (self.water_river + self.water_rain);
             }
         }
     }
-    /*
+    
     pub fn gen_vegetmap(&mut self) {
         let size = self.noise.size;
 
-        self.shrubs = Vec::new();
-        self.trees = Vec::new();
+        self.vegetmap = vec![0.; size * size];
 
         for i in 0..size*size {
-            self.shrubs.push()
+            if self.heightmap[i] > 0. {
+                let water = clamp(2. * self.watermap[i] - clamp((self.tempmap[i] / 50.).powi(2), 0., 1.), 0., 1.);
+                let energy = clamp(clamp(self.tempmap[i], 0., 40.).cbrt() / 40f64.cbrt(), 0., 1.);
+                let pht = clamp(match self.tempmap[i] / 10. {
+                    x if x > 3.5 => -(x - 3.).powi(2) + 1.25,
+                    x if x <= 3.5 => -(4. - x).sqrt() / 1.3 + 1.55,
+                    _ => 0.,
+                }, 0., 1.);
+
+                self.vegetmap[i] = (water * energy * pht).cbrt();
+            }
         }
     }
-    */
 
     pub fn export<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T) {
         let mut i = 0;
@@ -492,6 +544,25 @@ impl ProvBuilder {
 
         let max = map.iter().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
         let min = map.iter().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
+        let map: Vec<f64> = map.iter().map(|x| (x - min) / (max - min)).collect();
+
+        for y in 0..self.noise.size {
+            for x in 0..self.noise.size {
+                let val = (map[i] * 255.) as u8;
+                
+                i += 1;
+
+                img.put_pixel(x as u32, y as u32, Rgb([val, val, val]));
+            }
+        }
+
+        img.save(path.into()).unwrap();
+    }
+
+    pub fn export_minmax<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T, min: f64, max: f64) {
+        let mut i = 0;
+        let mut img = RgbImage::new(self.noise.size as u32, self.noise.size as u32);
+
         let map: Vec<f64> = map.iter().map(|x| (x - min) / (max - min)).collect();
 
         for y in 0..self.noise.size {

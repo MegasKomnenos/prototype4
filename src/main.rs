@@ -259,7 +259,7 @@ impl Core {
 }
 
 fn main() {
-    let mut map = map::ProvBuilder::new(1024, 0.1, 0.6, 2., 0., 1., 0.1, 0.9, 16., 8., 12., (1., -1.), 1., 0.01, 2./3., 1./3.);
+    let mut map = map::ProvBuilder::new(1024, 0.1, 0.6, 2., 0., 1., 0.1, 0.9, 12., 6., 12., (1., 2.), 0.8, 0.01, 0.001, 0.5, 0.5);
 
     map.gen_heightmap();
     map.export(&map.heightmap, "heightmap.png");
@@ -278,4 +278,7 @@ fn main() {
 
     map.gen_watermap();
     map.export(&map.watermap, "watermap.png");
+
+    map.gen_vegetmap();
+    map.export_minmax(&map.vegetmap, "vegetmap.png", 0., 1.);
 }
