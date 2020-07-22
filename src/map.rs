@@ -250,7 +250,7 @@ impl ProvBuilder {
                     _ => 0.,
                 };
 
-                self.heightmap.push(val * val);
+                self.heightmap.push(val * val * val);
             }
         }
     }
@@ -415,21 +415,20 @@ impl ProvBuilder {
         
         self.rivermap = vec![0.; size * size];
 
-        for _ in 0..size {
-            let mut rivermap_new = vec![0.; size * size];
+        for i in 0..size * size {
+            if river_drainage[i] > 0 {
+                let mut ii = i;
 
-            for (i, &rain) in self.cloudmap.iter().enumerate() {
-                if river_drainage[i] > 0 {
-                    rivermap_new[i] += rain;
+                loop {
+                    self.rivermap[ii] += self.cloudmap[i];
+
+                    if river_drainage[ii] > 0 {
+                        ii = river_drainage[ii];
+                    } else {
+                        break;
+                    }
                 }
             }
-            for (i, &river) in river_drainage.iter().enumerate() {
-                if river > 0 {
-                    rivermap_new[river] += self.rivermap[i];
-                }
-            }
-
-            swap(&mut self.rivermap, &mut rivermap_new);
         }
 
         for river in self.rivermap.iter_mut() {
