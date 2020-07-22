@@ -259,26 +259,23 @@ impl Core {
 }
 
 fn main() {
-    let mut map = map::ProvBuilder::new(1024, 0.1, 0.6, 2., 0., 1., 0.1, 0.9, 12., 6., 12., (1., 2.), 0.8, 0.01, 0.001, 0.5, 0.5);
+    let mut map = map::ProvBuilder::new(1024, 0.1, 0.6, 2., 0., 1., 0.1, 0.9, -60., -40.);
 
     map.gen_heightmap();
     map.export(&map.heightmap, "heightmap.png");
-    
+
+    map.gen_insolation();
+    map.export_minmax(&map.insolation, "insolation.png", 0., 1.);
+
     map.gen_waters();
     map.export_waters("waters.png");
 
-    map.gen_rainmap();
-    map.export(&map.rainmap, "rainmap.png");
+    map.gen_cloud();
+    map.export_minmax(&map.cloudmap, "cloudmap.png", 0., 1.);
 
-    map.gen_tempmap();
-    map.export(&map.tempmap, "tempmap.png");
+    map.gen_temp();
+    map.export_minmax(&map.tempmap, "tempmap.png", 0., 1.);
 
     map.gen_rivermap();
     map.export(&map.rivermap, "rivermap.png");
-
-    map.gen_watermap();
-    map.export(&map.watermap, "watermap.png");
-
-    map.gen_vegetmap();
-    map.export_minmax(&map.vegetmap, "vegetmap.png", 0., 1.);
 }

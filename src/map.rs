@@ -71,34 +71,116 @@ pub enum Water {
     Lake
 }
 
+pub fn is_neighbor(i: usize, ii: usize, size: usize) -> bool {
+    let x_i = i % size;
+    let y_i = i / size;
+
+    let x_ii = ii % size;
+    let y_ii = ii / size;
+
+    let x_diff = match x_i >= x_ii {
+        true => x_i - x_ii,
+        false => x_ii - x_i,
+    };
+    let y_diff = match y_i >= y_ii {
+        true => y_i - y_ii,
+        false => y_ii - y_i,
+    };
+
+    return x_diff <= 1 && y_diff <= 1 && y_ii < size;
+}
+
+fn find_lat(lats: &Vec<f64>, targ: f64, size: usize) -> usize {
+    let mut prev = 0;
+    let mut prev_diff = f64::MAX;
+
+    for y in 0..size {
+        let lat = lats[y * size];
+        let diff = (lat - targ).abs();
+
+        if diff < prev_diff {
+            prev = y;
+            prev_diff = diff;
+        } else {
+            return prev;
+        }
+    }
+
+    return prev;
+} 
+
+fn do_wind(x: usize, y: usize, y_to: usize, lat: f64, lat_goal: f64, 
+    flow: (f64, f64), size: usize, 
+    cloudmap: &mut Vec<f64>, latitudes: &Vec<f64>, heightmap: &Vec<f64>, 
+    water_gain: f64, water_mult: f64) 
+{
+    let mut flow_t = flow;
+
+    if flow_t.0.abs() != 1. {
+        flow_t.0 /= flow_t.0.abs();
+        flow_t.1 /= flow_t.0.abs();
+    }
+
+    let mut line = Vec::new();
+    let mut res = 0.;
+    let mut x_t = x;
+    let mut y_t = y;
+
+    while y_t != y_to {
+        if x_t < size {
+            line.push(x_t + y_t * size);
+        }
+
+        x_t = (x_t as isize + flow_t.0 as isize) as usize;
+        res += flow_t.1.abs();
+
+        while res >= 1. {
+            res -= 1.;
+            y_t = (y_t as isize + flow_t.1.signum() as isize) as usize;
+
+            if x_t < size && res >= 1. {
+                line.push(x_t + y_t * size);
+            }
+            if y_t == y_to {
+                break;
+            }
+        }
+    }
+
+    let mut water = size as f64 * water_mult / 100.;
+
+    for &ii in line.iter() {
+        water += water_gain;
+
+        let lat_t = latitudes[ii];
+
+        let cloud = water * (heightmap[ii].powf(0.75) + ((lat_t - lat) / (lat_goal - lat)).powi(3)) * 50. / size as f64;
+        cloudmap[ii] = cloud;
+        water -= cloud;
+    }
+}
+
 pub struct ProvBuilder {
     noise: PerlinOctave,
+    pub neighbs: Vec<Vec<(usize, f64)>>,
     pub heightmap: Vec<f64>,
-    pub tempmap: Vec<f64>,
-    pub rainmap: Vec<f64>,
-    pub rivermap: Vec<f64>,
-    pub watermap: Vec<f64>,
     pub waters: HashMap<usize, Water>,
-    pub vegetmap: Vec<f64>,
+    pub insolation: Vec<f64>,
+    pub latitude: Vec<f64>,
+    pub cloudmap: Vec<f64>,
+    pub rivermap: Vec<f64>,
+    pub tempmap: Vec<f64>,
+    pub watermap: Vec<f64>,
     water_level: f64,
     water_taper: f64,
-    temp_base: f64,
-    temp_height: f64,
-    temp_latitude: f64,
-    rain_wind: (f64, f64),
-    rain_height: f64,
-    rain_fall: f64,
-    rain_recover: f64,
-    water_river: f64,
-    water_rain: f64,
+    lat_start: f64,
+    lat_end: f64,
 }
 
 impl ProvBuilder {
     pub fn new(
         size: usize, freq: f64, pers: f64, lac: f64, min: f64, max: f64, water_level: f64, water_taper: f64, 
-        temp_base: f64, temp_height: f64, temp_latitude: f64,
-        rain_wind: (f64, f64), rain_height: f64, rain_fall: f64, rain_recover: f64,
-        water_river: f64, water_rain: f64,
+        lat_start: f64, lat_end: f64,
     ) -> Self {
         let noise = PerlinOctave {
             noise: Perlin::new(),
@@ -111,26 +193,43 @@ impl ProvBuilder {
             max,
         };
 
+        let choices = [
+            (1, 1.),
+            (-1 as isize, 1.),
+            (size as isize, 1.),
+            (-(size as isize), 1.),
+            (1 + size as isize, 2f64.sqrt()),
+            (-1 + size as isize, 2f64.sqrt()),
+            (1 - (size as isize), 2f64.sqrt()),
+            (-1 - (size as isize), 2f64.sqrt()),
+        ];
+
+        let neighbs = (0..size * size)
+            .into_iter()
+            .map(|i| {
+                choices
+                    .iter()
+                    .map(|&(ii, c)| ((i as isize + ii) as usize, c))
+                    .filter(|&(ii, _)| is_neighbor(i, ii, size))
+                    .collect()
+            })
+            .collect();
+
         ProvBuilder {
             noise,
+            neighbs,
             heightmap: Vec::new(),
-            tempmap: Vec::new(),
-            rainmap: Vec::new(),
-            rivermap: Vec::new(),
-            watermap: Vec::new(),
             waters: HashMap::new(),
-            vegetmap: Vec::new(),
+            insolation: Vec::new(),
+            latitude: Vec::new(),
+            cloudmap: Vec::new(),
+            rivermap: Vec::new(),
+            tempmap: Vec::new(),
+            watermap: Vec::new(),
             water_level,
             water_taper,
-            temp_base,
-            temp_height,
-            temp_latitude,
-            rain_wind: (rain_wind.0, -rain_wind.1),
-            rain_height,
-            rain_fall,
-            rain_recover,
-            water_river,
-            water_rain,
+            lat_start,
+            lat_end,
         }
     }
 
@@ -191,146 +290,83 @@ impl ProvBuilder {
         }
     }
 
-    pub fn gen_tempmap(&mut self) {
+    pub fn gen_insolation(&mut self) {
         let size = self.noise.size;
 
-        self.tempmap.clear();
-        self.tempmap.reserve_exact(size * size);
-
-        let mut i = 0;
+        self.latitude = vec![0.; size * size];
+        self.insolation = vec![0.; size * size];
 
         for y in 0..size {
-            for _ in 0..size {
-                let val = self.temp_base + (y as f64 / size as f64) * self.temp_latitude - self.heightmap[i] * self.temp_height;
+            let lat = (self.lat_end - self.lat_start) * y as f64 / (size - 1) as f64 + self.lat_start;
+            let insolation = -lat.powi(2) / 10000. + 1.;
 
-                self.tempmap.push(val);
-
-                i += 1;
+            for x in 0..size {
+                self.latitude[x + y * size] = lat;
+                self.insolation[x + y * size] = insolation;
             }
         }
     }
 
-    pub fn gen_rainmap(&mut self) {
+    pub fn gen_cloud(&mut self) {
         let size = self.noise.size;
 
-        let mut lines = Vec::new();
+        self.cloudmap = vec![0.; size * size];
 
-        if self.rain_wind.0 == 0. {
+        let s60 = find_lat(&self.latitude, -60., size);
+        let s30 = find_lat(&self.latitude, -30., size);
+        let s0 = find_lat(&self.latitude, 0., size);
+        let n30 = find_lat(&self.latitude, 30., size);
+        let n60 = find_lat(&self.latitude, 60., size);
+
+        if s30 != s60 {
             for x in 0..size {
-                let mut line = Vec::new();
-
-                for y in 0..size {
-                    line.push(x + y * size);
-                }
-
-                if self.rain_wind.1 < 0. {
-                    line.reverse();
-                }
-
-                lines.push(line);
+                do_wind(x, s30, s60, -30., -60., (1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.2, 1.);
             }
-        } else if self.rain_wind.1 == 0. {
-            for y in 0..size {
-                let mut line = Vec::new();
-
-                for x in 0..size {
-                    line.push(x + y * size);
-                }
-
-                if self.rain_wind.0 < 0. {
-                    line.reverse();
-                }
-
-                lines.push(line);
+            for y in s60..s30 {
+                do_wind(0, y, s60, -30., -60., (1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.2, (y - s60) as f64 / (s30 - s60) as f64);
             }
-        } else {
-            let start: i64;
-            let end: i64;
-
-            let steep = self.rain_wind.1 / self.rain_wind.0;
-
-            if steep >= 0. {
-                start = -(size as f64 / steep) as i64;
-                end = size as i64;
-            } else {
-                start = 0;
-                end = -(size as f64 / steep) as i64 + size as i64;
+        }
+        if s30 != s0 {
+            for x in 0..size {
+                do_wind(x, s30, s0, -30., 0., (-1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, 1.);
             }
-
-            for i in start..end {
-                let mut line = Vec::new();
-                let mut x = i;
-                let mut y = 0;
-                let mut res = 0.;
-
-                while y < size {
-                    if x >= 0 && x < size as i64 {
-                        line.push(x as usize + y * size);
-                    }
-
-                    x += steep.signum() as i64;
-                    res += steep.abs();
-
-                    while res >= 1. {
-                        res -= 1.;
-                        y += 1;
-
-                        if x >= 0 && x < size as i64 && y < size && res >= 1. {
-                            line.push(x as usize + y * size);
-                        }
-                    }
-                }
-
-                if (steep > 0. && self.rain_wind.0 < 0.) || (steep < 0. && self.rain_wind.1 < 0.) {
-                    line.reverse();
-                }
-
-                lines.push(line);
+            for y in s30..s0 {
+                do_wind(size - 1, y, s0, -30., 0., (-1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, (s0 - y) as f64 / (s0 - s30) as f64);
+            }
+        }
+        if n30 != s0 {
+            for x in 0..size {
+                do_wind(x, n30, s0, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, 1.);
+            }
+            for y in s0..n30 {
+                do_wind(size - 1, y, s0, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, (y - s0) as f64 / (n30 - s0) as f64);
+            }
+        }
+        if n30 != n60 {
+            for x in 0..size {
+                do_wind(x, n30, n60, 30., 60., (1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.2, 1.);
+            }
+            for y in n30..n60 {
+                do_wind(0, y, n60, 30., 60., (1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.2, (n60 - y) as f64 / (n60 - n30) as f64);
             }
         }
 
-        self.rainmap = vec![0.; size * size];
+        let max = self.cloudmap.iter().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
+        self.cloudmap = self.cloudmap.iter().map(|x| x / max).collect();
+    }
 
-        for line in lines.iter() {
-            let mut rain = 1.;
+    pub fn gen_temp(&mut self) {
+        let size = self.noise.size;
 
-            for (i, &ii) in line.iter().enumerate() {
-                if i > 0 {
-                    let rainfall = rain * match 2f64.powf(self.heightmap[ii] - self.heightmap[line[i-1]]) - 1. {
-                        x if x > 0. => x * self.rain_height,
-                        _ => 0.,
-                    };
-                    let droplets = match self.heightmap[ii] {
-                        x if x > 0. => rain.powf(1.5) * self.rain_fall * (x + 1.) / 2.,
-                        _ => 0.,
-                    };
+        self.tempmap = vec![0.; size * size];
 
-                    self.rainmap[ii] = rainfall + droplets;
-                    rain -= rainfall + droplets;
-                    rain += self.rain_recover;
-                    rain = clamp(rain, 0., 1.);
-                }
-            }
+        for i in 0..size * size {
+            self.tempmap[i] = clamp(self.insolation[i] * (1. - self.cloudmap[i] / 2.) - (self.heightmap[i] / 4.), 0., 1.);
         }
-
-        let max = self.rainmap.iter().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
-        let min = self.rainmap.iter().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
-        self.rainmap = self.rainmap.iter().map(|x| (x - min) / (max - min)).collect();
     }
 
     pub fn gen_rivermap(&mut self) {
         let size = self.noise.size;
-
-        let choices = [
-            (1, 1.),
-            (-1 as isize, 1.),
-            (size as isize, 1.),
-            (-(size as isize), 1.),
-            (1 + size as isize, 2f64.sqrt()),
-            (-1 + size as isize, 2f64.sqrt()),
-            (1 - (size as isize), 2f64.sqrt()),
-            (-1 - (size as isize), 2f64.sqrt()),
-        ];
 
         let mut river_drainage = vec![0; size * size];
         let mut height_ordered = self.heightmap
@@ -344,15 +380,12 @@ impl ProvBuilder {
             if let Some((i, _)) = height_ordered.pop() {
                 let (paths, _) = dijkstra(&i, 
                     |&i| {
-                        let choices: Vec<(usize, usize)> = choices
+                        let neighbs: Vec<(usize, usize)> = self.neighbs[i]
                             .iter()
-                            .map(|(ii, c)| {
-                                let ii = (i as isize + ii) as usize;
-                                (ii, (10000. * c * (self.heightmap[ii] / (self.heightmap[i] + 0.001))) as usize)
-                            })
+                            .map(|&(ii, c)| (ii, (10000. * c * (self.heightmap[ii] / (self.heightmap[i] + 0.001))) as usize))
                             .collect();
-                        
-                        return choices;
+
+                        return neighbs;
                     },
                     |&i| {
                         if river_drainage[i] != 0 {
@@ -377,13 +410,13 @@ impl ProvBuilder {
                 break;
             }
         }
-
+        
         self.rivermap = vec![0.; size * size];
 
         for _ in 0..size {
             let mut rivermap_new = vec![0.; size * size];
 
-            for (i, &rain) in self.rainmap.iter().enumerate() {
+            for (i, &rain) in self.cloudmap.iter().enumerate() {
                 if river_drainage[i] > 0 {
                     rivermap_new[i] += rain;
                 }
@@ -412,130 +445,7 @@ impl ProvBuilder {
         }
     }
 
-    pub fn gen_watermap(&mut self) {
-        let size = self.noise.size;
-        let sizei = size as isize;
-
-        let choices = [
-            (0, 0.),
-            (1, 1.),
-            (-1, 1.),
-            (sizei, 1.),
-            (-sizei, 1.),
-            (1 + sizei, 2f64.sqrt()),
-            (-1 + sizei, 2f64.sqrt()),
-            (1 - sizei, 2f64.sqrt()),
-            (-1 - sizei, 2f64.sqrt()),
-        ];
-        let choices2 = [
-            (2, 1.),
-            (2 + sizei, 1.),
-            (2 + sizei * 2, 1.),
-            (1 + sizei * 2, 1.),
-            (sizei * 2, 1.),
-            (sizei * 2 - 1, 1.),
-            (sizei * 2 - 2, 1.),
-            (sizei - 2, 1.),
-            (-2, 1.),
-            (-2 - sizei, 1.),
-            (-2 - 2 * sizei, 1.),
-            (-1 - 2 * sizei, 1.),
-            (-2 * sizei, 1.),
-            (1 - 2 * sizei, 1.),
-            (2 - 2 * sizei, 1.),
-            (2 - 1 * sizei, 1.),
-        ];
-
-        self.watermap = vec![0.; size * size];
-
-        for i in 0..size*size {
-            if let Some(Water::Lake) = self.waters.get(&i) {
-                self.watermap[i] = 1.;
-            } else if self.heightmap[i] > 0. {
-                let mut best_river = choices
-                    .iter()
-                    .map(|&(ii, _)| {
-                        let ii = (i as isize + ii) as usize;
-
-                        if let Some(Water::Lake) = self.waters.get(&ii) {
-                            return 1.;
-                        } else {
-                            return self.rivermap[ii];
-                        }
-                    })
-                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
-                    .unwrap();
-                let second_best_river = choices2
-                    .iter()
-                    .map(|&(ii, _)| {
-                        let ii = (i as isize + ii) as usize;
-
-                        if let Some(Water::Lake) = self.waters.get(&ii) {
-                            return 0.5;
-                        } else {
-                            return self.rivermap[ii] / 2.;
-                        }
-                    })
-                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
-                    .unwrap();
-
-                let mut best_rain = choices
-                    .iter()
-                    .map(|&(ii, _)| {
-                        let ii = (i as isize + ii) as usize;
-
-                        if let Some(Water::Lake) = self.waters.get(&ii) {
-                            return 1.;
-                        } else {
-                            return self.rainmap[ii];
-                        }
-                    })
-                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
-                    .unwrap();
-                let second_best_rain = choices2
-                    .iter()
-                    .map(|&(ii, _)| {
-                        let ii = (i as isize + ii) as usize;
-
-                        if let Some(Water::Lake) = self.waters.get(&ii) {
-                            return 0.5;
-                        } else {
-                            return self.rainmap[ii] / 2.;
-                        }
-                    })
-                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
-                    .unwrap();
-                
-                if best_river < second_best_river {
-                    best_river = second_best_river;
-                }
-                if best_rain < second_best_rain {
-                    best_rain = second_best_rain;
-                }
-                
-                self.watermap[i] = (best_river * self.water_river + best_rain * self.water_rain) / (self.water_river + self.water_rain);
-            }
-        }
-    }
-    
-    pub fn gen_vegetmap(&mut self) {
-        let size = self.noise.size;
-
-        self.vegetmap = vec![0.; size * size];
-
-        for i in 0..size*size {
-            if self.heightmap[i] > 0. {
-                let water = clamp(2. * self.watermap[i] - clamp((self.tempmap[i] / 50.).powi(2), 0., 1.), 0., 1.);
-                let energy = clamp(clamp(self.tempmap[i], 0., 40.).cbrt() / 40f64.cbrt(), 0., 1.);
-                let pht = clamp(match self.tempmap[i] / 10. {
-                    x if x > 3.5 => -(x - 3.).powi(2) + 1.25,
-                    x if x <= 3.5 => -(4. - x).sqrt() / 1.3 + 1.55,
-                    _ => 0.,
-                }, 0., 1.);
-
-                self.vegetmap[i] = (water * energy * pht).cbrt();
-            }
-        }
+    pub fn gen_atmosphere(&mut self) {
     }
 
     pub fn export<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T) {
