@@ -278,4 +278,10 @@ fn main() {
 
     map.gen_rivermap();
     map.export(&map.rivermap, "rivermap.png");
+
+    map.gen_watermap();
+    map.export(&map.watermap, "watermap.png");
+
+    map.gen_vegetmap();
+    map.export(&map.vegetmap, "vegetmap.png");
 }

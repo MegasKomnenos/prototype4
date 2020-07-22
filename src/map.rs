@@ -171,6 +171,7 @@ pub struct ProvBuilder {
     pub rivermap: Vec<f64>,
     pub tempmap: Vec<f64>,
     pub watermap: Vec<f64>,
+    pub vegetmap: Vec<f64>,
     water_level: f64,
     water_taper: f64,
     lat_start: f64,
@@ -226,6 +227,7 @@ impl ProvBuilder {
             rivermap: Vec::new(),
             tempmap: Vec::new(),
             watermap: Vec::new(),
+            vegetmap: Vec::new(),
             water_level,
             water_taper,
             lat_start,
@@ -445,7 +447,44 @@ impl ProvBuilder {
         }
     }
 
-    pub fn gen_atmosphere(&mut self) {
+    pub fn gen_watermap(&mut self) {
+        let size = self.noise.size;
+
+        self.watermap = vec![0.; size * size];
+
+        for i in 0..size*size {
+            if let Some(Water::Lake) = self.waters.get(&i) {
+                self.watermap[i] = (self.cloudmap[i] + 1.) / 2.;
+            } else if self.heightmap[i] > 0. {
+                let best_river = self.neighbs[i]
+                    .iter()
+                    .map(|&(ii, _)| {
+                        if let Some(Water::Lake) = self.waters.get(&ii) {
+                            return 1.;
+                        } else {
+                            return self.rivermap[ii];
+                        }
+                    })
+                    .max_by(|&a, &b| a.partial_cmp(&b).unwrap())
+                    .unwrap();
+                
+                self.watermap[i] = (self.cloudmap[i] + best_river) / (1. + best_river);
+            }
+        }
+    }
+    
+    pub fn gen_vegetmap(&mut self) {
+        let size = self.noise.size;
+
+        self.vegetmap = vec![0.; size * size];
+
+        for i in 0..size*size {
+            if self.heightmap[i] > 0. {
+                let water = clamp(1.5 * self.watermap[i] - self.tempmap[i] / 2., 0., 1.);
+
+                self.vegetmap[i] = (water * (-(self.tempmap[i] - 0.75).powi(2) + 1.)).sqrt();
+            }
+        }
     }
 
     pub fn export<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T) {
