@@ -337,11 +337,19 @@ impl ProvBuilder {
             }
         }
         if n30 != s0 {
-            for x in 0..size {
-                do_wind(x, n30, s0, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, 1.);
+            let s00;
+
+            if s30 != s0 {
+                s00 = s0 - 1;
+            } else {
+                s00 = s0;
             }
-            for y in s0..n30 {
-                do_wind(size - 1, y, s0, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, (y - s0) as f64 / (n30 - s0) as f64);
+
+            for x in 0..size {
+                do_wind(x, n30, s00, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, 1.);
+            }
+            for y in s00..n30 {
+                do_wind(size - 1, y, s00, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, (y - s00) as f64 / (n30 - s00) as f64);
             }
         }
         if n30 != n60 {
