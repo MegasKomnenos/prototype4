@@ -162,6 +162,7 @@ fn do_wind(x: usize, y: usize, y_to: usize, lat: f64, lat_goal: f64,
 
 pub struct ProvBuilder {
     noise: PerlinOctave,
+    pub size: usize,
     pub neighbs: Vec<Vec<(usize, f64)>>,
     pub heightmap: Vec<f64>,
     pub waters: HashMap<usize, Water>,
@@ -217,6 +218,7 @@ impl ProvBuilder {
             .collect();
 
         ProvBuilder {
+            size,
             noise,
             neighbs,
             heightmap: Vec::new(),
@@ -236,7 +238,7 @@ impl ProvBuilder {
     }
 
     pub fn gen_heightmap(&mut self) {
-        let size = self.noise.size;
+        let size = self.size;
         let med = size / 2;
 
         self.heightmap.clear();
@@ -256,7 +258,7 @@ impl ProvBuilder {
     }
 
     pub fn gen_waters(&mut self) {
-        let size = self.noise.size;
+        let size = self.size;
         let mut stack = Vec::new();
 
         stack.push(0);
@@ -293,7 +295,7 @@ impl ProvBuilder {
     }
 
     pub fn gen_insolation(&mut self) {
-        let size = self.noise.size;
+        let size = self.size;
 
         self.latitude = vec![0.; size * size];
         self.insolation = vec![0.; size * size];
@@ -310,7 +312,7 @@ impl ProvBuilder {
     }
 
     pub fn gen_cloud(&mut self) {
-        let size = self.noise.size;
+        let size = self.size;
 
         self.cloudmap = vec![0.; size * size];
 
@@ -366,7 +368,7 @@ impl ProvBuilder {
     }
 
     pub fn gen_temp(&mut self) {
-        let size = self.noise.size;
+        let size = self.size;
 
         self.tempmap = vec![0.; size * size];
 
@@ -376,7 +378,7 @@ impl ProvBuilder {
     }
 
     pub fn gen_rivermap(&mut self) {
-        let size = self.noise.size;
+        let size = self.size;
 
         let mut river_drainage = vec![0; size * size];
         let mut height_ordered = self.heightmap
@@ -455,7 +457,7 @@ impl ProvBuilder {
     }
 
     pub fn gen_watermap(&mut self) {
-        let size = self.noise.size;
+        let size = self.size;
 
         self.watermap = vec![0.; size * size];
 
@@ -481,7 +483,7 @@ impl ProvBuilder {
     }
     
     pub fn gen_vegetmap(&mut self) {
-        let size = self.noise.size;
+        let size = self.size;
 
         self.vegetmap = vec![0.; size * size];
 
@@ -496,14 +498,14 @@ impl ProvBuilder {
 
     pub fn export<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T) {
         let mut i = 0;
-        let mut img = RgbImage::new(self.noise.size as u32, self.noise.size as u32);
+        let mut img = RgbImage::new(self.size as u32, self.size as u32);
 
         let max = map.iter().max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
         let min = map.iter().min_by(|x, y| x.partial_cmp(y).unwrap()).unwrap();
         let map: Vec<f64> = map.iter().map(|x| (x - min) / (max - min)).collect();
 
-        for y in 0..self.noise.size {
-            for x in 0..self.noise.size {
+        for y in 0..self.size {
+            for x in 0..self.size {
                 let val = (map[i] * 255.) as u8;
                 
                 i += 1;
@@ -517,12 +519,12 @@ impl ProvBuilder {
 
     pub fn export_minmax<T: Into<PathBuf>>(&self, map: &Vec<f64>, path: T, min: f64, max: f64) {
         let mut i = 0;
-        let mut img = RgbImage::new(self.noise.size as u32, self.noise.size as u32);
+        let mut img = RgbImage::new(self.size as u32, self.size as u32);
 
         let map: Vec<f64> = map.iter().map(|x| (x - min) / (max - min)).collect();
 
-        for y in 0..self.noise.size {
-            for x in 0..self.noise.size {
+        for y in 0..self.size {
+            for x in 0..self.size {
                 let val = (map[i] * 255.) as u8;
                 
                 i += 1;
@@ -536,10 +538,10 @@ impl ProvBuilder {
 
     pub fn export_waters<T: Into<PathBuf>>(&self, path: T) {
         let mut i = 0;
-        let mut img = RgbImage::new(self.noise.size as u32, self.noise.size as u32);
+        let mut img = RgbImage::new(self.size as u32, self.size as u32);
 
-        for y in 0..self.noise.size {
-            for x in 0..self.noise.size {
+        for y in 0..self.size {
+            for x in 0..self.size {
                 if let Some(water) = self.waters.get(&i) {
                     match water {
                         Water::Lake => img.put_pixel(x as u32, y as u32, Rgb([128, 128, 128])),

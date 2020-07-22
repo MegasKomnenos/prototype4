@@ -51,36 +51,24 @@ impl<T: Clone> Clone for Wrapper<T> {
 unsafe impl<T> Send for Wrapper<T> {}
 unsafe impl<T> Sync for Wrapper<T> {}
 
-enum ProvType {
-    Land,
-    Sea,
-}
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Pixel;
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Lake;
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Sea;
 
 struct Owned { item: Entity }
 struct Owns { item: Vec<Entity> }
 struct Name { item: String }
-struct Pop;
-struct Activity;
-struct Size { item: f32 }
-struct Skill { item: HashMap<String, f32> }
-struct Stockpile { item: HashMap<String, f32> } 
-struct Price { item: HashMap<String, f32> }
-struct PriceChange { item: HashMap<String, f32> }
-struct Land { item: HashMap<String, f32> }
-struct Labor { item: HashMap<String, f32> }
-struct Income { item: HashMap<String, f32> }
-struct Spending { item: HashMap<String, f32> }
-struct IncomeChange { item: HashMap<String, f32> }
-struct SpendingChange { item: HashMap<String, f32> }
-struct Fulfillment { item: HashMap<String, f32> }
-struct Prov;
-struct Neighb { item: HashMap<Entity, ProvType> }
-struct Distance { item: HashMap<Entity, f32> }
-struct LandMax { item: HashMap<String, f32> }
-struct Heat { item: f32 }
-struct Rain { item: f32 }
-struct Inun { item: f32 } 
-struct Coord { item: [f32; 2] }
+struct Water { item: f64 }
+struct River { item: f64 }
+struct Rain { item: f64 }
+struct Heat { item: f64 }
+struct Height { item: f64 }
+struct Veget { item: f64 }
+struct Neighb { item: Vec<Entity> }
+
 
 fn handle_event(world: &mut World, resources: &mut Resources, events: &Receiver<LoopEvent>) {
     for event in events.try_iter() {
@@ -246,8 +234,46 @@ impl Core {
         }
     }
 
-    fn load_provinces(&mut self, map: PathBuf) {
+    fn load_pixels(&mut self) {
+        let mut map = map::ProvBuilder::new(1024, 0.1, 0.6, 2., 0., 1., 0.1, 0.9, -60., 20.);
 
+        map.gen_heightmap();
+        map.gen_insolation();
+        map.gen_waters();
+        map.gen_cloud();
+        map.gen_temp();
+        map.gen_rivermap();
+        map.gen_watermap();
+        map.gen_vegetmap();
+
+        let world = unsafe { &mut Arc::get_mut_unchecked(&mut self.sys).world };
+
+        let pixels = world.insert(
+            (Pixel,),
+            (0..map.size * map.size).map(|i| {
+                (
+                    Height { item: map.heightmap[i] },
+                    Heat { item: map.tempmap[i] },
+                    Water { item: map.watermap[i] },
+                    River { item: map.rivermap[i] },
+                    Rain { item: map.cloudmap[i] },
+                    Veget { item: map.vegetmap[i] },
+                )
+            })
+        ).to_vec();
+
+        for (i, &pixel) in pixels.iter().enumerate() {
+            let neighb = map.neighbs[i].iter().map(|&(i, _)| pixels[i]).collect();
+
+            world.add_component(pixel, Neighb { item: neighb }).unwrap();
+
+            if let Some(water) = map.waters.get(&i) {
+                match water {
+                    map::Water::Sea => world.add_tag(pixel, Sea).unwrap(),
+                    map::Water::Lake => world.add_tag(pixel, Lake).unwrap(),
+                };
+            }
+        }
     }
 
     fn start(&mut self) {
@@ -259,29 +285,7 @@ impl Core {
 }
 
 fn main() {
-    let mut map = map::ProvBuilder::new(1024, 0.1, 0.6, 2., 0., 1., 0.1, 0.9, -60., 20.);
+    let mut core = Core::new();
 
-    map.gen_heightmap();
-    map.export(&map.heightmap, "heightmap.png");
-
-    map.gen_insolation();
-    map.export_minmax(&map.insolation, "insolation.png", 0., 1.);
-
-    map.gen_waters();
-    map.export_waters("waters.png");
-
-    map.gen_cloud();
-    map.export_minmax(&map.cloudmap, "cloudmap.png", 0., 1.);
-
-    map.gen_temp();
-    map.export_minmax(&map.tempmap, "tempmap.png", 0., 1.);
-
-    map.gen_rivermap();
-    map.export(&map.rivermap, "rivermap.png");
-
-    map.gen_watermap();
-    map.export(&map.watermap, "watermap.png");
-
-    map.gen_vegetmap();
-    map.export(&map.vegetmap, "vegetmap.png");
+    core.load_pixels();
 }
