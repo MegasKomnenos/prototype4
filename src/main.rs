@@ -54,16 +54,16 @@ enum LoopEvent {
     ChangeResource(Wrapper<Box<dyn Any>>, fn(&mut Resources, Box<dyn Any>)),
 }
 
-const SET: fn(&mut f32, &f32) = |x, y| *x = *y;
-const MAX: fn(&mut f32, &f32) = |x, y| *x = max_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
-const MIN: fn(&mut f32, &f32) = |x, y| *x = min_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
-const ADD: fn(&mut f32, &f32) = |x, y| *x += y;
-const SUBT: fn(&mut f32, &f32) = |x, y| *x -= y;
-const MULT: fn(&mut f32, &f32) = |x, y| *x *= y;
-const DIV: fn(&mut f32, &f32) = |x, y| *x /= y;
-const POW: fn(&mut f32, &f32) = |x, y| *x = x.powf(*y);
-const ROOT: fn(&mut f32, &f32) = |x, y| *x = x.powf(1./y);
-const LOG: fn(&mut f32, &f32) = |x, y| *x = x.log(*y);
+static SET: fn(&mut f32, &f32) = |x, y| *x = *y;
+static MAX: fn(&mut f32, &f32) = |x, y| *x = max_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
+static MIN: fn(&mut f32, &f32) = |x, y| *x = min_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
+static ADD: fn(&mut f32, &f32) = |x, y| *x += y;
+static SUBT: fn(&mut f32, &f32) = |x, y| *x -= y;
+static MULT: fn(&mut f32, &f32) = |x, y| *x *= y;
+static DIV: fn(&mut f32, &f32) = |x, y| *x /= y;
+static POW: fn(&mut f32, &f32) = |x, y| *x = x.powf(*y);
+static ROOT: fn(&mut f32, &f32) = |x, y| *x = x.powf(1./y);
+static LOG: fn(&mut f32, &f32) = |x, y| *x = x.log(*y);
 
 pub fn get_func(name: &String) -> fn(&mut f32, &f32) {
     match name.as_str() {
@@ -83,7 +83,6 @@ pub fn get_func(name: &String) -> fn(&mut f32, &f32) {
 
 struct Value {
     name: String,
-    update: bool,
     base: f32,
     value: f32,
     funcs: Vec<fn(&mut f32, &f32)>,
@@ -139,7 +138,6 @@ impl ValueManager {
 
         self.values.push(Value {
             name,
-            update: false,
             base,
             value,
             funcs,
