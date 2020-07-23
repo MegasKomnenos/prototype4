@@ -110,16 +110,20 @@ impl ValueManager {
             names: HashMap::new(),
         };
 
-        value.add_value("0".to_string(), 0., Vec::new(), Vec::new());
-        value.add_value("1".to_string(), 1., Vec::new(), Vec::new());
-        value.add_value("-1".to_string(), -1., Vec::new(), Vec::new());
-        value.add_value("2".to_string(), 2., Vec::new(), Vec::new());
-        value.add_value("-2".to_string(), -2., Vec::new(), Vec::new());
+        value.add_value("0", 0., Vec::new(), Vec::new());
+        value.add_value("1", 1., Vec::new(), Vec::new());
+        value.add_value("-1", -1., Vec::new(), Vec::new());
+        value.add_value("2", 2., Vec::new(), Vec::new());
+        value.add_value("-2", -2., Vec::new(), Vec::new());
 
         return value;
     }
 
-    fn add_value(&mut self, name: String, base: f32, funcs: Vec<String>, parents: Vec<String>) -> Arc<ValueHandle> {
+    fn add_value<T: Into<String> + Copy>(&mut self, name: T, base: f32, funcs: Vec<T>, parents: Vec<T>) -> Arc<ValueHandle> {
+        let name = name.into();
+        let funcs: Vec<String> = funcs.iter().map(|&f| f.into()).collect();
+        let parents: Vec<String> = parents.iter().map(|&p| p.into()).collect();
+        
         self.names.insert(name.clone(), self.names.len());
         let funcs: Vec<fn(&mut f32, &f32)> = funcs.iter().map(|n| get_func(n)).collect();
         let parents: Vec<usize> = parents.iter().map(|n| self.names.get(n).unwrap().clone()).collect();
@@ -235,18 +239,27 @@ struct Pixel;
 struct Lake;
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Sea;
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Settlement;
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Colony;
 
 struct Owned { item: Entity }
 struct Owns { item: Vec<Entity> }
 struct Name { item: String }
-struct Water { item: f64 }
-struct River { item: f64 }
-struct Rain { item: f64 }
-struct Heat { item: f64 }
-struct Height { item: f64 }
-struct Veget { item: f64 }
+struct Water { value: Arc<ValueHandle> }
+struct River { value: Arc<ValueHandle> }
+struct Rain { value: Arc<ValueHandle> }
+struct Heat { value: Arc<ValueHandle> }
+struct Height { value: Arc<ValueHandle> }
+struct Veget { value: Arc<ValueHandle> }
 struct Neighb { item: Vec<Entity> }
-
+struct RiverBase { item: f32 }
+struct VegetBase { item: f32 }
+struct Pop { value: Arc<ValueHandle> }
+struct Skill { item: HashMap<String, Arc<ValueHandle>> }
+struct Building { item: HashMap<String, Arc<ValueHandle>> }
+struct Land { item: HashMap<String, Arc<ValueHandle>> }
 
 fn handle_event(world: &mut World, resources: &mut Resources, events: &Receiver<LoopEvent>) {
     for event in events.try_iter() {
@@ -429,22 +442,34 @@ impl Core {
         map.export_waters("waters.png");
         map.export_minmax(&map.cloudmap, "cloudmap.png", 0., 1.);
         map.export_minmax(&map.tempmap, "tempmap.png", 0., 1.);
-        map.export(&map.rivermap, "rivermap.png");
-        map.export(&map.watermap, "watermap.png");
-        map.export(&map.vegetmap, "vegetmap.png");
+        map.export_minmax(&map.rivermap, "rivermap.png", 0., 1.);
+        map.export_minmax(&map.watermap, "watermap.png", 0., 1.);
+        map.export_minmax(&map.vegetmap, "vegetmap.png", 0., 1.);
 
         let world = unsafe { &mut Arc::get_mut_unchecked(&mut self.sys).world };
 
         let pixels = world.insert(
             (Pixel,),
             (0..map.size * map.size).map(|i| {
+                let mut manager = ValueManager::new();
+
+                let height = manager.add_value("Height", map.heightmap[i] as f32, Vec::new(), Vec::new());
+                let heat = manager.add_value("Heat", map.tempmap[i] as f32, Vec::new(), Vec::new());
+                let river = manager.add_value("River", map.rivermap[i] as f32, Vec::new(), Vec::new());
+                let rain = manager.add_value("Rain", map.cloudmap[i] as f32, Vec::new(), Vec::new());
+                let veget = manager.add_value("Veget", map.vegetmap[i] as f32, Vec::new(), Vec::new());
+                let water = manager.add_value("Water", 0., vec!["SET", "ADD", "DIV"], vec!["River", "Rain", "2"]);
+
                 (
-                    Height { item: map.heightmap[i] },
-                    Heat { item: map.tempmap[i] },
-                    Water { item: map.watermap[i] },
-                    River { item: map.rivermap[i] },
-                    Rain { item: map.cloudmap[i] },
-                    Veget { item: map.vegetmap[i] },
+                    manager,
+                    Height { value: height },
+                    Heat { value: heat },
+                    River { value: river },
+                    Rain { value: rain },
+                    Veget { value: veget },
+                    Water { value: water },
+                    RiverBase { item: map.rivermap[i] as f32 },
+                    VegetBase { item: map.vegetmap[i] as f32 },
                 )
             })
         ).to_vec();
