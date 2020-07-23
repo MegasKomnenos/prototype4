@@ -1,4 +1,5 @@
 #![feature(get_mut_unchecked)]
+#![feature(cmp_min_max_by)]
 
 extern crate num_cpus;
 
@@ -29,12 +30,8 @@ use std::collections::HashMap;
 use std::any::Any;
 use std::path::PathBuf;
 use std::fs::File;
-
-enum LoopEvent {
-    RemoveEntity(Entity),
-    ChangeComponent(Entity, Wrapper<Box<dyn Any>>, fn(&mut World, &Entity, Box<dyn Any>)),
-    ChangeResource(Wrapper<Box<dyn Any>>, fn(&mut Resources, Box<dyn Any>)),
-}
+use std::cmp::max_by;
+use std::cmp::min_by;
 
 struct Wrapper<T> {
     item: T,
@@ -50,6 +47,187 @@ impl<T: Clone> Clone for Wrapper<T> {
 
 unsafe impl<T> Send for Wrapper<T> {}
 unsafe impl<T> Sync for Wrapper<T> {}
+
+enum LoopEvent {
+    RemoveEntity(Entity),
+    ChangeComponent(Entity, Wrapper<Box<dyn Any>>, fn(&mut World, &Entity, Box<dyn Any>)),
+    ChangeResource(Wrapper<Box<dyn Any>>, fn(&mut Resources, Box<dyn Any>)),
+}
+
+const SET: fn(&mut f32, &f32) = |x, y| *x = *y;
+const MAX: fn(&mut f32, &f32) = |x, y| *x = max_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
+const MIN: fn(&mut f32, &f32) = |x, y| *x = min_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
+const ADD: fn(&mut f32, &f32) = |x, y| *x += y;
+const SUBT: fn(&mut f32, &f32) = |x, y| *x -= y;
+const MULT: fn(&mut f32, &f32) = |x, y| *x *= y;
+const DIV: fn(&mut f32, &f32) = |x, y| *x /= y;
+const POW: fn(&mut f32, &f32) = |x, y| *x = x.powf(*y);
+const ROOT: fn(&mut f32, &f32) = |x, y| *x = x.powf(1./y);
+const LOG: fn(&mut f32, &f32) = |x, y| *x = x.log(*y);
+
+pub fn get_func(name: &String) -> fn(&mut f32, &f32) {
+    match name.as_str() {
+        "SET" => SET,
+        "MAX" => MAX,
+        "MIN" => MIN,
+        "ADD" => ADD,
+        "SUBT" => SUBT,
+        "MULT" => MULT,
+        "DIV" => DIV,
+        "POW" => POW,
+        "ROOT" => ROOT,
+        "LOG" => LOG,
+        _ => |_, _| (),
+    }
+}
+
+struct Value {
+    name: String,
+    update: bool,
+    base: f32,
+    value: f32,
+    funcs: Vec<fn(&mut f32, &f32)>,
+    parents: Vec<usize>,
+    children: Vec<usize>,
+}
+
+struct ValueHandle {
+    value: f32,
+    change: f32,
+}
+
+struct ValueManager {
+    handles: Vec<Arc<ValueHandle>>,
+    values: Vec<Value>,
+    names: HashMap<String, usize>,
+}
+
+impl ValueManager {
+    fn new() -> Self {
+        let mut value = ValueManager {
+            handles: Vec::new(),
+            values: Vec::new(),
+            names: HashMap::new(),
+        };
+
+        value.add_value("0".to_string(), 0., Vec::new(), Vec::new());
+        value.add_value("1".to_string(), 1., Vec::new(), Vec::new());
+        value.add_value("-1".to_string(), -1., Vec::new(), Vec::new());
+        value.add_value("2".to_string(), 2., Vec::new(), Vec::new());
+        value.add_value("-2".to_string(), -2., Vec::new(), Vec::new());
+
+        return value;
+    }
+
+    fn add_value(&mut self, name: String, base: f32, funcs: Vec<String>, parents: Vec<String>) -> Arc<ValueHandle> {
+        self.names.insert(name.clone(), self.names.len());
+        let funcs: Vec<fn(&mut f32, &f32)> = funcs.iter().map(|n| get_func(n)).collect();
+        let parents: Vec<usize> = parents.iter().map(|n| self.names.get(n).unwrap().clone()).collect();
+
+        let mut value = base;
+
+        for &parent in parents.iter() {
+            self.values[parent].children.push(self.names.get(&name).unwrap().clone());
+        }
+        for (i, func) in funcs.iter().enumerate() {
+            func(&mut value, &self.handles[parents[i]].value);
+        }
+
+        self.values.push(Value {
+            name,
+            update: false,
+            base,
+            value,
+            funcs,
+            parents,
+            children: Vec::new(),
+        });
+        self.handles.push(Arc::new(ValueHandle { value, change: 0. }));
+
+        return self.handles.last().unwrap().clone();
+    }
+
+    fn remove_value(&mut self, name: String) {
+        let &i = self.names.get(&name).unwrap();
+
+        for ii in (i..self.values.len()).rev() {
+            *self.names.get_mut(&self.values[ii].name).unwrap() -= 1;
+
+            for value in self.values.iter_mut() {
+                for parent in value.parents.iter_mut() {
+                    if *parent == ii {
+                        *parent -= 1;
+                    }
+                }
+                for child in value.children.iter_mut() {
+                    if *child == ii {
+                        *child -= 1;
+                    }
+                }
+            }
+        }
+
+        self.handles.remove(i);
+        self.values.remove(i);
+        self.names.remove(&name);
+    }
+
+    fn update(&mut self) {
+        let mut update = Vec::new();
+
+        for (i, handle) in self.handles.iter_mut().enumerate() {
+            let handle = unsafe { Arc::get_mut_unchecked(handle) };
+
+            if handle.change != 0. {
+                update.push(i);
+
+                self.values[i].base += handle.change;
+                handle.change = 0.;
+            }
+        }
+
+        let mut stack = update.clone();
+
+        while !stack.is_empty() {
+            let i = stack.pop().unwrap();
+
+            for child in self.values[i].children.iter() {
+                if !update.contains(child) {
+                    update.push(*child);
+                    stack.push(*child);
+                }
+            }
+        }
+
+        while !update.is_empty() {
+            let mut is = Vec::new();
+
+            'outer: for ii in (0..update.len()).rev() {
+                let i = update[ii].clone();
+
+                for parent in self.values[i].parents.iter() {
+                    if update.contains(parent) {
+                        continue 'outer;
+                    }
+                }
+
+                is.push(i);
+                update.remove(ii);
+            }
+
+            for &i in is.iter() {
+                let mut value = self.values[i].base;
+
+                for (ii, func) in self.values[i].funcs.iter().enumerate() {
+                    func(&mut value, &self.handles[self.values[i].parents[ii]].value);
+                }
+
+                self.values[i].value = value;
+                unsafe { Arc::get_mut_unchecked(&mut self.handles[i]).value = value; }
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Pixel;
