@@ -246,6 +246,15 @@ impl Core {
         map.gen_watermap();
         map.gen_vegetmap();
 
+        map.export(&map.heightmap, "heightmap.png");
+        map.export_minmax(&map.insolation, "insolation.png", 0., 1.);
+        map.export_waters("waters.png");
+        map.export_minmax(&map.cloudmap, "cloudmap.png", 0., 1.);
+        map.export_minmax(&map.tempmap, "tempmap.png", 0., 1.);
+        map.export(&map.rivermap, "rivermap.png");
+        map.export(&map.watermap, "watermap.png");
+        map.export(&map.vegetmap, "vegetmap.png");
+
         let world = unsafe { &mut Arc::get_mut_unchecked(&mut self.sys).world };
 
         let pixels = world.insert(
