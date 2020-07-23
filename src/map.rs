@@ -154,7 +154,7 @@ fn do_wind(x: usize, y: usize, y_to: usize, lat: f64, lat_goal: f64,
 
         let lat_t = latitudes[ii];
 
-        let cloud = water * (heightmap[ii].powf(0.75) + ((lat_t - lat) / (lat_goal - lat)).powi(3)) * 50. / size as f64;
+        let cloud = water * (heightmap[ii].powf(0.75) + ((lat_t - lat) / (lat_goal - lat)).powi(3)) * 25. / size as f64;
         cloudmap[ii] = cloud;
         water -= cloud;
     }
@@ -324,18 +324,18 @@ impl ProvBuilder {
 
         if s30 != s60 {
             for x in 0..size {
-                do_wind(x, s30, s60, -30., -60., (1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.2, 1.);
+                do_wind(x, s30, s60, -30., -60., (1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.1, 1.);
             }
             for y in s60..s30 {
-                do_wind(0, y, s60, -30., -60., (1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.2, (y - s60) as f64 / (s30 - s60) as f64);
+                do_wind(0, y, s60, -30., -60., (1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.1, (y - s60) as f64 / (s30 - s60) as f64);
             }
         }
         if s30 != s0 {
             for x in 0..size {
-                do_wind(x, s30, s0, -30., 0., (-1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, 1.);
+                do_wind(x, s30, s0, -30., 0., (-1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.25, 1.);
             }
             for y in s30..s0 {
-                do_wind(size - 1, y, s0, -30., 0., (-1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, (s0 - y) as f64 / (s0 - s30) as f64);
+                do_wind(size - 1, y, s0, -30., 0., (-1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.25, (s0 - y) as f64 / (s0 - s30) as f64);
             }
         }
         if n30 != s0 {
@@ -348,18 +348,32 @@ impl ProvBuilder {
             }
 
             for x in 0..size {
-                do_wind(x, n30, s00, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, 1.);
+                do_wind(x, n30, s00, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.25, 1.);
             }
             for y in s00..n30 {
-                do_wind(size - 1, y, s00, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.5, (y - s00) as f64 / (n30 - s00) as f64);
+                do_wind(size - 1, y, s00, 30., 0., (-1., -1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.25, (y - s00) as f64 / (n30 - s00) as f64);
+            }
+
+            if s30 != s0 {
+                let y_diff = (size as f64).cbrt() as usize;
+                for x in 0..size { 
+                    self.cloudmap[s0 * size + x] += 0.05; 
+                }
+
+                for y in 1..y_diff {
+                    for x in 0..size {
+                        self.cloudmap[(s0 - y) * size + x] += 0.05 * (y_diff as f64 - y as f64) / y_diff as f64;
+                        self.cloudmap[(s0 + y) * size + x] += 0.05 * (y_diff as f64 - y as f64) / y_diff as f64;
+                    }
+                }
             }
         }
         if n30 != n60 {
             for x in 0..size {
-                do_wind(x, n30, n60, 30., 60., (1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.2, 1.);
+                do_wind(x, n30, n60, 30., 60., (1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.1, 1.);
             }
             for y in n30..n60 {
-                do_wind(0, y, n60, 30., 60., (1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.2, (n60 - y) as f64 / (n60 - n30) as f64);
+                do_wind(0, y, n60, 30., 60., (1., 1.), size, &mut self.cloudmap, &self.latitude, &self.heightmap, 0.1, (n60 - y) as f64 / (n60 - n30) as f64);
             }
         }
 
