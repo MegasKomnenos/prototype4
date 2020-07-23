@@ -85,9 +85,8 @@ struct Value {
     name: String,
     base: f32,
     value: f32,
-    funcs: Vec<fn(&mut f32, &f32)>,
-    parents: Vec<usize>,
-    children: Vec<usize>,
+    funcs: Option<Vec<fn(&mut f32, &f32)>>,
+    parents: Option<Vec<usize>>,
 }
 
 struct ValueHandle {
@@ -124,17 +123,10 @@ impl ValueManager {
         let parents: Vec<String> = parents.iter().map(|&p| p.into()).collect();
         
         self.names.insert(name.clone(), self.names.len());
-        let funcs: Vec<fn(&mut f32, &f32)> = funcs.iter().map(|n| get_func(n)).collect();
-        let parents: Vec<usize> = parents.iter().map(|n| self.names.get(n).unwrap().clone()).collect();
+        let funcs = match funcs.len() { 0 => None, _ => Some(funcs.iter().map(|n| get_func(n)).collect()) };
+        let parents = match parents.len() { 0 => None, _ => Some(parents.iter().map(|n| *self.names.get(n).unwrap()).collect()) };
 
         let mut value = base;
-
-        for &parent in parents.iter() {
-            self.values[parent].children.push(self.names.get(&name).unwrap().clone());
-        }
-        for (i, func) in funcs.iter().enumerate() {
-            func(&mut value, &self.handles[parents[i]].value);
-        }
 
         self.values.push(Value {
             name,
@@ -142,7 +134,6 @@ impl ValueManager {
             value,
             funcs,
             parents,
-            children: Vec::new(),
         });
         self.handles.push(Arc::new(ValueHandle { value, change: 0. }));
 
@@ -156,14 +147,11 @@ impl ValueManager {
             *self.names.get_mut(&self.values[ii].name).unwrap() -= 1;
 
             for value in self.values.iter_mut() {
-                for parent in value.parents.iter_mut() {
-                    if *parent == ii {
-                        *parent -= 1;
-                    }
-                }
-                for child in value.children.iter_mut() {
-                    if *child == ii {
-                        *child -= 1;
+                if let Some(parents) = &mut value.parents {
+                    for parent in parents.iter_mut() {
+                        if *parent == ii {
+                            *parent -= 1;
+                        }
                     }
                 }
             }
@@ -193,10 +181,12 @@ impl ValueManager {
         while !stack.is_empty() {
             let i = stack.pop().unwrap();
 
-            for child in self.values[i].children.iter() {
-                if !update.contains(child) {
-                    update.push(*child);
-                    stack.push(*child);
+            for (ii, value) in self.values.iter().enumerate() {
+                if let Some(parents) = &value.parents {
+                    if parents.contains(&i) && !update.contains(&ii) {
+                        update.push(ii);
+                        stack.push(ii);
+                    }
                 }
             }
         }
@@ -207,9 +197,11 @@ impl ValueManager {
             'outer: for ii in (0..update.len()).rev() {
                 let i = update[ii].clone();
 
-                for parent in self.values[i].parents.iter() {
-                    if update.contains(parent) {
-                        continue 'outer;
+                if let Some(parents) = &self.values[i].parents {
+                    for parent in parents.iter() {
+                        if update.contains(parent) {
+                            continue 'outer;
+                        }
                     }
                 }
 
@@ -220,8 +212,12 @@ impl ValueManager {
             for &i in is.iter() {
                 let mut value = self.values[i].base;
 
-                for (ii, func) in self.values[i].funcs.iter().enumerate() {
-                    func(&mut value, &self.handles[self.values[i].parents[ii]].value);
+                if let Some(parents) = &self.values[i].parents {
+                    let funcs = self.values[i].funcs.as_ref().unwrap();
+
+                    for (ii, func) in funcs.iter().enumerate() {
+                        func(&mut value, &self.handles[parents[ii]].value);
+                    }
                 }
 
                 self.values[i].value = value;
