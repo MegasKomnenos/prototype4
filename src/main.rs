@@ -68,10 +68,14 @@ static ADD: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() + y.to_f32
 static SUBT: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() - y.to_f32());
 static MULT: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() * y.to_f32());
 static DIV: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() / y.to_f32());
+static DIVR: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(y.to_f32() / x.to_f32());
 static POW: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32().powf(y.to_f32()));
+static POWR: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(y.to_f32().powf(x.to_f32()));
 static ROOT: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32().powf(1. / y.to_f32()));
+static ROOTR: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(y.to_f32().powf(1. / x.to_f32()));
 static LOG: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32().log(y.to_f32()));
-static FUNCS: [fn(&mut f16, &f16); 10] = [
+static LOGR: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(y.to_f32().log(x.to_f32()));
+static FUNCS: [fn(&mut f16, &f16); 14] = [
     SET,
     MAX,
     MIN,
@@ -79,9 +83,13 @@ static FUNCS: [fn(&mut f16, &f16); 10] = [
     SUBT,
     MULT,
     DIV,
+    DIVR,
     POW,
+    POWR,
     ROOT,
+    ROOTR,
     LOG,
+    LOGR,
 ];
 
 pub fn get_func(name: &String) -> u8 {
@@ -93,10 +101,14 @@ pub fn get_func(name: &String) -> u8 {
         "SUBT" => 4,
         "MULT" => 5,
         "DIV" => 6,
-        "POW" => 7,
-        "ROOT" => 8,
-        "LOG" => 9,
-        _ => 10,
+        "DIVR" => 7,
+        "POW" => 8,
+        "POWR" => 9,
+        "ROOT" => 10,
+        "ROOTR" => 11,
+        "LOG" => 12,
+        "LOGR" => 13,
+        _ => 14,
     }
 }
 
@@ -124,6 +136,8 @@ impl<'s> ValueManager<'s> {
         value.add_value("-1", -1., Vec::<&str>::new(), Vec::<&str>::new());
         value.add_value("2", 2., Vec::<&str>::new(), Vec::<&str>::new());
         value.add_value("-2", -2., Vec::<&str>::new(), Vec::<&str>::new());
+        value.add_value("3", 3., Vec::<&str>::new(), Vec::<&str>::new());
+        value.add_value("-3", -3., Vec::<&str>::new(), Vec::<&str>::new());
 
         return value;
     }
@@ -256,9 +270,18 @@ struct RiverBase { item: f32 }
 struct VegetBase { item: f32 }
 struct Index { item: usize }
 struct Pop { value: Arc<Value> }
-struct Skill { value: HashMap<String, Arc<Value>> }
-struct Building { value: HashMap<String, Arc<Value>> }
-struct Land { value: HashMap<String, Arc<Value>> }
+struct Skill<'s> { value: HashMap<&'s str, Arc<Value>> }
+struct City { value: Arc<Value> }
+struct Road { value: Arc<Value> }
+struct Docks { value: Arc<Value> }
+struct Canal { value: Arc<Value> }
+struct Farm { value: Arc<Value> }
+struct Pasture { value: Arc<Value> }
+struct Forest { value: Arc<Value> }
+struct Cityland { value: Arc<Value> }
+struct Farmland { value: Arc<Value> }
+struct Pastureland { value: Arc<Value> }
+struct Forestland { value: Arc<Value> }
 
 fn handle_event(world: &mut World, resources: &mut Resources, events: &Receiver<LoopEvent>) {
     for event in events.try_iter() {
@@ -467,6 +490,23 @@ impl Core {
                 let veget = manager.add_value("Veget", map.vegetmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
                 let water = manager.add_value("Water", 0., vec!["SET", "ADD", "DIV"], vec!["River", "Rain", "2"]);
 
+                let city = manager.add_value("City", 0., Vec::<&str>::new(), Vec::<&str>::new());
+                let docks = manager.add_value("Docks", 0., Vec::<&str>::new(), Vec::<&str>::new());
+                let road = manager.add_value("Road", 0., Vec::<&str>::new(), Vec::<&str>::new());
+                let canal = manager.add_value("Canal", 0., Vec::<&str>::new(), Vec::<&str>::new());
+                let farm = manager.add_value("Farm", 0., Vec::<&str>::new(), Vec::<&str>::new());
+                let pasture = manager.add_value("Pasture", 0., Vec::<&str>::new(), Vec::<&str>::new());
+                let forest = manager.add_value("Forest", 0., Vec::<&str>::new(), Vec::<&str>::new());
+
+                let cityland = manager.add_value("Cityland", 0., Vec::<&str>::new(), Vec::<&str>::new());
+                let forestland = manager.add_value("Forestland", 0., vec!["SET"], vec!["Veget"]);
+
+                manager.add_value("Land Remaining", 1., vec!["SUBT"], vec!["Cityland"]);
+                manager.add_value("Arability", 1., vec!["ADD", "DIV"], vec!["Water", "2"]);
+                
+                let farmland = manager.add_value("Farmland", 1., vec!["SUBT", "MULT", "MULT", "MULT"], vec!["Forestland", "Land Remaining", "Arability", "Water"]);
+                let pastureland = manager.add_value("Pastureland", 1., vec!["SUBT", "MULT", "MULT", "SUBT"], vec!["Forestland", "Land Remaining", "Arability", "Farmland"]);
+
                 (
                     manager,
                     Height { value: height },
@@ -477,6 +517,17 @@ impl Core {
                     Water { value: water },
                     RiverBase { item: map.rivermap[i] as f32 },
                     VegetBase { item: map.vegetmap[i] as f32 },
+                    City { value: city },
+                    Docks { value: docks },
+                    Road { value: road },
+                    Canal { value: canal },
+                    Farm { value: farm },
+                    Pasture { value: pasture },
+                    Forest { value: forest },
+                    Cityland { value: cityland },
+                    Farmland { value : farmland },
+                    Pastureland { value : pastureland },
+                    Forestland { value : forestland },
                 )
             })
         ).to_vec();
@@ -496,6 +547,8 @@ impl Core {
                 world.add_tag(pixel, Settlement).unwrap();
             }
         }
+
+        self.barrier.wait();
     }
 
     fn start(&mut self) {
