@@ -547,8 +547,6 @@ impl Core {
                 world.add_tag(pixel, Settlement).unwrap();
             }
         }
-
-        self.barrier.wait();
     }
 
     fn start(&mut self) {
