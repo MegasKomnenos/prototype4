@@ -13,6 +13,8 @@ use legion::systems::schedule::Schedule;
 use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
 
+use half::f16;
+
 use ron::ser::to_writer;
 
 use rand::thread_rng;
@@ -59,17 +61,17 @@ struct Defines {
     size: usize,
 }
 
-static SET: fn(&mut f32, &f32) = |x, y| *x = *y;
-static MAX: fn(&mut f32, &f32) = |x, y| *x = max_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
-static MIN: fn(&mut f32, &f32) = |x, y| *x = min_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
-static ADD: fn(&mut f32, &f32) = |x, y| *x += y;
-static SUBT: fn(&mut f32, &f32) = |x, y| *x -= y;
-static MULT: fn(&mut f32, &f32) = |x, y| *x *= y;
-static DIV: fn(&mut f32, &f32) = |x, y| *x /= y;
-static POW: fn(&mut f32, &f32) = |x, y| *x = x.powf(*y);
-static ROOT: fn(&mut f32, &f32) = |x, y| *x = x.powf(1./y);
-static LOG: fn(&mut f32, &f32) = |x, y| *x = x.log(*y);
-static FUNCS: [fn(&mut f32, &f32); 10] = [
+static SET: fn(&mut f16, &f16) = |x, y| *x = *y;
+static MAX: fn(&mut f16, &f16) = |x, y| *x = max_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
+static MIN: fn(&mut f16, &f16) = |x, y| *x = min_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
+static ADD: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() + y.to_f32());
+static SUBT: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() - y.to_f32());
+static MULT: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() * y.to_f32());
+static DIV: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() / y.to_f32());
+static POW: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32().powf(y.to_f32()));
+static ROOT: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32().powf(1. / y.to_f32()));
+static LOG: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32().log(y.to_f32()));
+static FUNCS: [fn(&mut f16, &f16); 10] = [
     SET,
     MAX,
     MIN,
@@ -98,20 +100,15 @@ pub fn get_func(name: &String) -> u8 {
     }
 }
 
-struct Value<'s> {
-    name: &'s str,
-    handle: Arc<ValueHandle>,
-    base: f32,
+struct Value {
+    base: f16,
+    value: f16,
+    change: f16,
     paras: Option<u16>,
 }
 
-struct ValueHandle {
-    value: f32,
-    change: f32,
-}
-
 struct ValueManager<'s> {
-    values: Vec<Value<'s>>,
+    values: Vec<(&'s str, Arc<Value>)>,
     paras: Vec<Vec<(u8, u16)>>
 }
 
@@ -131,7 +128,7 @@ impl<'s> ValueManager<'s> {
         return value;
     }
 
-    fn add_value<T: Into<String> + Copy>(&mut self, name: &'s str, base: f32, funcs: Vec<T>, parents: Vec<T>) -> Arc<ValueHandle> {
+    fn add_value<T: Into<String> + Copy>(&mut self, name: &'s str, base: f32, funcs: Vec<T>, parents: Vec<T>) -> Arc<Value> {
         let funcs: Vec<String> = funcs.iter().map(|&f| f.into()).collect();
         let parents: Vec<String> = parents.iter().map(|&p| p.into()).collect();
 
@@ -141,8 +138,8 @@ impl<'s> ValueManager<'s> {
                 let mut paras = Vec::new();
 
                 for i in 0..funcs.len() {
-                    for (ii, value) in self.values.iter().enumerate() {
-                        if value.name == parents[i] {
+                    for (ii, &(name, _)) in self.values.iter().enumerate() {
+                        if name == parents[i].as_str() {
                             paras.push((get_func(&funcs[i]), ii as u16));
 
                             break;
@@ -155,31 +152,29 @@ impl<'s> ValueManager<'s> {
             }
         };
 
-        self.values.push(Value {
-            name,
-            handle: Arc::new(ValueHandle { value: base, change: 0. }),
+        let base = f16::from_f32(base);
+
+        self.values.push((name, Arc::new(Value {
             base,
+            value: base,
+            change: f16::from_f32(0.),
             paras,
-        });
+        })));
 
-        return self.values.last().unwrap().handle.clone();
-    }
-
-    fn get_handle(&self, name: &'s str) -> Arc<ValueHandle> {
-        self.values.iter().find(|v| v.name == name).unwrap().handle.clone()
+        return self.values.last().unwrap().1.clone();
     }
 
     fn update(&mut self) {
         let mut update = Vec::new();
 
-        for (i, value) in self.values.iter_mut().enumerate() {
-            let handle = unsafe { Arc::get_mut_unchecked(&mut value.handle) };
+        for (i, (_, value)) in self.values.iter_mut().enumerate() {
+            let value = unsafe { Arc::get_mut_unchecked(value) };
 
-            if handle.change != 0. {
+            if value.change.to_f32() != 0. {
                 update.push(i);
 
-                value.base += handle.change;
-                handle.change = 0.;
+                value.base = f16::from_f32(value.base.to_f32() + value.change.to_f32());
+                value.change = f16::from_f32(0.);
             }
         }
 
@@ -188,7 +183,7 @@ impl<'s> ValueManager<'s> {
         while !stack.is_empty() {
             let i = stack.pop().unwrap();
 
-            for (ii, value) in self.values.iter().enumerate() {
+            for (ii, (_, value)) in self.values.iter().enumerate() {
                 if let Some(paras) = &value.paras {
                     for (_, parent) in self.paras[*paras as usize].iter() {
                         if i as u16 == *parent && !update.contains(&ii) {
@@ -208,7 +203,7 @@ impl<'s> ValueManager<'s> {
             'outer: for ii in (0..update.len()).rev() {
                 let i = update[ii].clone();
 
-                if let Some(paras) = &self.values[i].paras {
+                if let Some(paras) = &self.values[i].1.paras {
                     for (_, parent) in self.paras[*paras as usize].iter() {
                         if update.contains(&(*parent as usize)) {
                             continue 'outer;
@@ -221,15 +216,15 @@ impl<'s> ValueManager<'s> {
             }
 
             for &i in is.iter() {
-                let mut value = self.values[i].base;
+                let mut value = self.values[i].1.base;
 
-                if let Some(paras) = &self.values[i].paras {
+                if let Some(paras) = &self.values[i].1.paras {
                     for (func, parent) in self.paras[*paras as usize].iter() {
-                        FUNCS[*func as usize](&mut value, &self.values[*parent as usize].handle.value);
+                        FUNCS[*func as usize](&mut value, &self.values[*parent as usize].1.value);
                     }
                 }
 
-                unsafe { Arc::get_mut_unchecked(&mut self.values[i].handle).value = value; }
+                unsafe { Arc::get_mut_unchecked(&mut self.values[i].1).value = value; }
             }
         }
     }
@@ -248,21 +243,22 @@ struct Colony;
 
 struct Owned { item: Entity }
 struct Owns { item: Vec<Entity> }
+struct Location { item: Entity }
 struct Name { item: String }
-struct Water { item: f32 }
-struct River { item: f32 }
-struct Rain { item: f32 }
-struct Heat { item: f32 }
-struct Height { item: f32 }
-struct Veget { item: f32 }
+struct Water { value: Arc<Value> }
+struct River { value: Arc<Value> }
+struct Rain { value: Arc<Value> }
+struct Heat { value: Arc<Value> }
+struct Height { value: Arc<Value> }
+struct Veget { value: Arc<Value> }
 struct Neighb { item: Vec<Entity> }
 struct RiverBase { item: f32 }
 struct VegetBase { item: f32 }
 struct Index { item: usize }
-struct Pop { value: Arc<ValueHandle> }
-struct Skill { item: HashMap<String, Arc<ValueHandle>> }
-struct Building { item: HashMap<String, Arc<ValueHandle>> }
-struct Land { item: HashMap<String, Arc<ValueHandle>> }
+struct Pop { value: Arc<Value> }
+struct Skill { value: HashMap<String, Arc<Value>> }
+struct Building { value: HashMap<String, Arc<Value>> }
+struct Land { value: HashMap<String, Arc<Value>> }
 
 fn handle_event(world: &mut World, resources: &mut Resources, events: &Receiver<LoopEvent>) {
     for event in events.try_iter() {
@@ -462,16 +458,25 @@ impl Core {
         let pixels = world.insert(
             (Pixel,),
             (0..map.size * map.size).map(|i| {
+                let mut manager = ValueManager::new();
+
+                let height = manager.add_value("Height", map.heightmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
+                let heat = manager.add_value("Heat", map.tempmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
+                let river = manager.add_value("River", map.rivermap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
+                let rain = manager.add_value("Rain", map.cloudmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
+                let veget = manager.add_value("Veget", map.vegetmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
+                let water = manager.add_value("Water", 0., vec!["SET", "ADD", "DIV"], vec!["River", "Rain", "2"]);
+
                 (
-                    Height { item: map.heightmap[i] as f32 },
-                    Heat { item: map.tempmap[i] as f32 },
-                    River { item: map.rivermap[i] as f32 },
-                    Rain { item: map.cloudmap[i] as f32 },
-                    Veget { item: map.vegetmap[i] as f32 },
-                    Water { item: (map.rivermap[i] + map.cloudmap[i]) as f32 / 2. },
+                    manager,
+                    Height { value: height },
+                    Heat { value: heat },
+                    River { value: river },
+                    Rain { value: rain },
+                    Veget { value: veget },
+                    Water { value: water },
                     RiverBase { item: map.rivermap[i] as f32 },
                     VegetBase { item: map.vegetmap[i] as f32 },
-                    Index { item: i },
                 )
             })
         ).to_vec();

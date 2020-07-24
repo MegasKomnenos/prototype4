@@ -255,6 +255,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "half"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d36fab90f82edc3c747f9d438e06cf0a491055896f2a279638bb5beed6c40177"
+
+[[package]]
 name = "hashbrown"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -669,6 +675,7 @@ dependencies = [
 name = "prototype4"
 version = "0.1.0"
 dependencies = [
+ "half",
  "image 0.23.7",
  "legion",
  "noise",
