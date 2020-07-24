@@ -1,0 +1,20 @@
+Defines(
+    size: 1024,
+    building_i: {
+        "Road": 0,
+        "Canal": 1,
+        "Docks": 2,
+        "House": 3,
+        "Workshop": 4,
+        "Farm": 5,
+        "Pasture": 6,
+        "Forest": 7,
+    },
+    land_i: {
+        "Houseland": 0,
+        "Workshopland": 1,
+        "Farmland": 2,
+        "Pastureland": 3,
+        "Forestland": 4,
+    },
+)

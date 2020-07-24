@@ -15,7 +15,8 @@ use rayon::ThreadPoolBuilder;
 
 use half::f16;
 
-use ron::ser::to_writer;
+use serde::Deserialize;
+use ron::de::from_reader;
 
 use rand::thread_rng;
 use rand::Rng;
@@ -56,192 +57,19 @@ enum LoopEvent {
     ChangeResource(Wrapper<Box<dyn Any>>, fn(&mut Resources, Box<dyn Any>)),
 }
 
-#[derive(Clone)]
+enum BuildingAction {
+}
+
+#[derive(Clone, Deserialize)]
 struct Defines {
     size: usize,
+    building_i: HashMap<String, usize>,
+    land_i: HashMap<String, usize>,
 }
 
-static SET: fn(&mut f16, &f16) = |x, y| *x = *y;
-static MAX: fn(&mut f16, &f16) = |x, y| *x = max_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
-static MIN: fn(&mut f16, &f16) = |x, y| *x = min_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
-static ADD: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() + y.to_f32());
-static SUBT: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() - y.to_f32());
-static MULT: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() * y.to_f32());
-static DIV: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32() / y.to_f32());
-static DIVR: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(y.to_f32() / x.to_f32());
-static POW: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32().powf(y.to_f32()));
-static POWR: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(y.to_f32().powf(x.to_f32()));
-static ROOT: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32().powf(1. / y.to_f32()));
-static ROOTR: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(y.to_f32().powf(1. / x.to_f32()));
-static LOG: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(x.to_f32().log(y.to_f32()));
-static LOGR: fn(&mut f16, &f16) = |x, y| *x = f16::from_f32(y.to_f32().log(x.to_f32()));
-static FUNCS: [fn(&mut f16, &f16); 14] = [
-    SET,
-    MAX,
-    MIN,
-    ADD,
-    SUBT,
-    MULT,
-    DIV,
-    DIVR,
-    POW,
-    POWR,
-    ROOT,
-    ROOTR,
-    LOG,
-    LOGR,
-];
-
-pub fn get_func(name: &String) -> u8 {
-    match name.as_str() {
-        "SET" => 0,
-        "MAX" => 1,
-        "MIN" => 2,
-        "ADD" => 3,
-        "SUBT" => 4,
-        "MULT" => 5,
-        "DIV" => 6,
-        "DIVR" => 7,
-        "POW" => 8,
-        "POWR" => 9,
-        "ROOT" => 10,
-        "ROOTR" => 11,
-        "LOG" => 12,
-        "LOGR" => 13,
-        _ => 14,
-    }
-}
-
-struct Value {
-    base: f16,
-    value: f16,
-    change: f16,
-    paras: Option<u16>,
-}
-
-struct ValueManager<'s> {
-    values: Vec<(&'s str, Arc<Value>)>,
-    paras: Vec<Vec<(u8, u16)>>
-}
-
-impl<'s> ValueManager<'s> {
-    fn new() -> Self {
-        let mut value = ValueManager {
-            values: Vec::new(),
-            paras: Vec::new(),
-        };
-
-        value.add_value("0", 0., Vec::<&str>::new(), Vec::<&str>::new());
-        value.add_value("1", 1., Vec::<&str>::new(), Vec::<&str>::new());
-        value.add_value("-1", -1., Vec::<&str>::new(), Vec::<&str>::new());
-        value.add_value("2", 2., Vec::<&str>::new(), Vec::<&str>::new());
-        value.add_value("-2", -2., Vec::<&str>::new(), Vec::<&str>::new());
-        value.add_value("3", 3., Vec::<&str>::new(), Vec::<&str>::new());
-        value.add_value("-3", -3., Vec::<&str>::new(), Vec::<&str>::new());
-
-        return value;
-    }
-
-    fn add_value<T: Into<String> + Copy>(&mut self, name: &'s str, base: f32, funcs: Vec<T>, parents: Vec<T>) -> Arc<Value> {
-        let funcs: Vec<String> = funcs.iter().map(|&f| f.into()).collect();
-        let parents: Vec<String> = parents.iter().map(|&p| p.into()).collect();
-
-        let paras = match funcs.len() {
-            0 => None,
-            _ => {
-                let mut paras = Vec::new();
-
-                for i in 0..funcs.len() {
-                    for (ii, &(name, _)) in self.values.iter().enumerate() {
-                        if name == parents[i].as_str() {
-                            paras.push((get_func(&funcs[i]), ii as u16));
-
-                            break;
-                        }
-                    }
-                }
-
-                self.paras.push(paras);
-                Some(self.paras.len() as u16 - 1)
-            }
-        };
-
-        let base = f16::from_f32(base);
-
-        self.values.push((name, Arc::new(Value {
-            base,
-            value: base,
-            change: f16::from_f32(0.),
-            paras,
-        })));
-
-        return self.values.last().unwrap().1.clone();
-    }
-
-    fn update(&mut self) {
-        let mut update = Vec::new();
-
-        for (i, (_, value)) in self.values.iter_mut().enumerate() {
-            let value = unsafe { Arc::get_mut_unchecked(value) };
-
-            if value.change.to_f32() != 0. {
-                update.push(i);
-
-                value.base = f16::from_f32(value.base.to_f32() + value.change.to_f32());
-                value.change = f16::from_f32(0.);
-            }
-        }
-
-        let mut stack = update.clone();
-
-        while !stack.is_empty() {
-            let i = stack.pop().unwrap();
-
-            for (ii, (_, value)) in self.values.iter().enumerate() {
-                if let Some(paras) = &value.paras {
-                    for (_, parent) in self.paras[*paras as usize].iter() {
-                        if i as u16 == *parent && !update.contains(&ii) {
-                            update.push(ii);
-                            stack.push(ii);
-
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        while !update.is_empty() {
-            let mut is = Vec::new();
-
-            'outer: for ii in (0..update.len()).rev() {
-                let i = update[ii].clone();
-
-                if let Some(paras) = &self.values[i].1.paras {
-                    for (_, parent) in self.paras[*paras as usize].iter() {
-                        if update.contains(&(*parent as usize)) {
-                            continue 'outer;
-                        }
-                    }
-                }
-
-                is.push(i);
-                update.remove(ii);
-            }
-
-            for &i in is.iter() {
-                let mut value = self.values[i].1.base;
-
-                if let Some(paras) = &self.values[i].1.paras {
-                    for (func, parent) in self.paras[*paras as usize].iter() {
-                        FUNCS[*func as usize](&mut value, &self.values[*parent as usize].1.value);
-                    }
-                }
-
-                unsafe { Arc::get_mut_unchecked(&mut self.values[i].1).value = value; }
-            }
-        }
-    }
+#[derive(Clone, Deserialize)]
+struct BuildingDefines {
+    name: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -259,29 +87,22 @@ struct Owned { item: Entity }
 struct Owns { item: Vec<Entity> }
 struct Location { item: Entity }
 struct Name { item: String }
-struct Water { value: Arc<Value> }
-struct River { value: Arc<Value> }
-struct Rain { value: Arc<Value> }
-struct Heat { value: Arc<Value> }
-struct Height { value: Arc<Value> }
-struct Veget { value: Arc<Value> }
+struct Water { item: f32 }
+struct River { item: f32 }
+struct Rain { item: f32 }
+struct Heat { item: f32 }
+struct Height { item: f32 }
+struct Veget { item: f32 }
 struct Neighb { item: Vec<Entity> }
 struct RiverBase { item: f32 }
 struct VegetBase { item: f32 }
+struct Speed { item: f32 }
+struct Capacity { item: f32 }
 struct Index { item: usize }
-struct Pop { value: Arc<Value> }
-struct Skill<'s> { value: HashMap<&'s str, Arc<Value>> }
-struct City { value: Arc<Value> }
-struct Road { value: Arc<Value> }
-struct Docks { value: Arc<Value> }
-struct Canal { value: Arc<Value> }
-struct Farm { value: Arc<Value> }
-struct Pasture { value: Arc<Value> }
-struct Forest { value: Arc<Value> }
-struct Cityland { value: Arc<Value> }
-struct Farmland { value: Arc<Value> }
-struct Pastureland { value: Arc<Value> }
-struct Forestland { value: Arc<Value> }
+struct Pop { item: f32 }
+struct Skill { item: Vec<f32> }
+struct Building { item: Vec<f32> }
+struct Land { item: Vec<f32> }
 
 fn handle_event(world: &mut World, resources: &mut Resources, events: &Receiver<LoopEvent>) {
     for event in events.try_iter() {
@@ -400,7 +221,7 @@ impl Core {
         let mtx = Arc::new(Mutex::new(false));
         let run = Arc::new(AtomicBool::new(false));
         let pools = vec![ThreadPoolBuilder::new().num_threads(1).build().unwrap(), ThreadPoolBuilder::new().num_threads(num_cpus::get() - 1).build().unwrap()];
-        let defines = Defines { size: 1024 };
+        let defines: Defines = from_reader(File::open("defines.ron").unwrap()).unwrap();
 
         let (producer_app, consumer_app) = channel::<LoopEvent>();
         let (producer_sys, consumer_sys) = channel::<LoopEvent>();
@@ -481,53 +302,17 @@ impl Core {
         let pixels = world.insert(
             (Pixel,),
             (0..map.size * map.size).map(|i| {
-                let mut manager = ValueManager::new();
-
-                let height = manager.add_value("Height", map.heightmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let heat = manager.add_value("Heat", map.tempmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let river = manager.add_value("River", map.rivermap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let rain = manager.add_value("Rain", map.cloudmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let veget = manager.add_value("Veget", map.vegetmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let water = manager.add_value("Water", 0., vec!["SET", "ADD", "DIV"], vec!["River", "Rain", "2"]);
-
-                let city = manager.add_value("City", 0., Vec::<&str>::new(), Vec::<&str>::new());
-                let docks = manager.add_value("Docks", 0., Vec::<&str>::new(), Vec::<&str>::new());
-                let road = manager.add_value("Road", 0., Vec::<&str>::new(), Vec::<&str>::new());
-                let canal = manager.add_value("Canal", 0., Vec::<&str>::new(), Vec::<&str>::new());
-                let farm = manager.add_value("Farm", 0., Vec::<&str>::new(), Vec::<&str>::new());
-                let pasture = manager.add_value("Pasture", 0., Vec::<&str>::new(), Vec::<&str>::new());
-                let forest = manager.add_value("Forest", 0., Vec::<&str>::new(), Vec::<&str>::new());
-
-                let cityland = manager.add_value("Cityland", 0., Vec::<&str>::new(), Vec::<&str>::new());
-                let forestland = manager.add_value("Forestland", 0., vec!["SET"], vec!["Veget"]);
-
-                manager.add_value("Land Remaining", 1., vec!["SUBT"], vec!["Cityland"]);
-                manager.add_value("Arability", 1., vec!["ADD", "DIV"], vec!["Water", "2"]);
-                
-                let farmland = manager.add_value("Farmland", 1., vec!["SUBT", "MULT", "MULT", "MULT"], vec!["Forestland", "Land Remaining", "Arability", "Water"]);
-                let pastureland = manager.add_value("Pastureland", 1., vec!["SUBT", "MULT", "MULT", "SUBT"], vec!["Forestland", "Land Remaining", "Arability", "Farmland"]);
-
                 (
-                    manager,
-                    Height { value: height },
-                    Heat { value: heat },
-                    River { value: river },
-                    Rain { value: rain },
-                    Veget { value: veget },
-                    Water { value: water },
+                    Height { item: map.heightmap[i] as f32 },
+                    Heat { item: map.tempmap[i] as f32 },
+                    River { item: map.rivermap[i] as f32 },
+                    Rain { item: map.cloudmap[i] as f32 },
+                    Veget { item: map.vegetmap[i] as f32 },
+                    Water { item: map.watermap[i] as f32 },
                     RiverBase { item: map.rivermap[i] as f32 },
                     VegetBase { item: map.vegetmap[i] as f32 },
-                    City { value: city },
-                    Docks { value: docks },
-                    Road { value: road },
-                    Canal { value: canal },
-                    Farm { value: farm },
-                    Pasture { value: pasture },
-                    Forest { value: forest },
-                    Cityland { value: cityland },
-                    Farmland { value : farmland },
-                    Pastureland { value : pastureland },
-                    Forestland { value : forestland },
+                    Building { item: Vec::new() },
+                    Land { item: Vec::new() },
                 )
             })
         ).to_vec();
