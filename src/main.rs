@@ -240,12 +240,12 @@ struct Colony;
 struct Owned { item: Entity }
 struct Owns { item: Vec<Entity> }
 struct Name { item: String }
-struct Water { value: Arc<ValueHandle> }
-struct River { value: Arc<ValueHandle> }
-struct Rain { value: Arc<ValueHandle> }
-struct Heat { value: Arc<ValueHandle> }
-struct Height { value: Arc<ValueHandle> }
-struct Veget { value: Arc<ValueHandle> }
+struct Water { item: f32 }
+struct River { item: f32 }
+struct Rain { item: f32 }
+struct Heat { item: f32 }
+struct Height { item: f32 }
+struct Veget { item: f32 }
 struct Neighb { item: Vec<Entity> }
 struct RiverBase { item: f32 }
 struct VegetBase { item: f32 }
@@ -444,23 +444,13 @@ impl Core {
         let pixels = world.insert(
             (Pixel,),
             (0..map.size * map.size).map(|i| {
-                let mut manager = ValueManager::new();
-
-                let height = manager.add_value("Height", map.heightmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let heat = manager.add_value("Heat", map.tempmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let river = manager.add_value("River", map.rivermap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let rain = manager.add_value("Rain", map.cloudmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let veget = manager.add_value("Veget", map.vegetmap[i] as f32, Vec::<&str>::new(), Vec::<&str>::new());
-                let water = manager.add_value("Water", 0., vec!["SET", "ADD", "DIV"], vec!["River", "Rain", "2"]);
-
                 (
-                    manager,
-                    Height { value: height },
-                    Heat { value: heat },
-                    River { value: river },
-                    Rain { value: rain },
-                    Veget { value: veget },
-                    Water { value: water },
+                    Height { item: map.heightmap[i] as f32 },
+                    Heat { item: map.tempmap[i] as f32 },
+                    River { item: map.rivermap[i] as f32 },
+                    Rain { item: map.cloudmap[i] as f32 },
+                    Veget { item: map.vegetmap[i] as f32 },
+                    Water { item: (map.rivermap[i] + map.cloudmap[i]) as f32 / 2. },
                     RiverBase { item: map.rivermap[i] as f32 },
                     VegetBase { item: map.vegetmap[i] as f32 },
                 )
