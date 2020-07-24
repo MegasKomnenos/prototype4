@@ -54,6 +54,11 @@ enum LoopEvent {
     ChangeResource(Wrapper<Box<dyn Any>>, fn(&mut Resources, Box<dyn Any>)),
 }
 
+#[derive(Clone)]
+struct Defines {
+    size: usize,
+}
+
 static SET: fn(&mut f32, &f32) = |x, y| *x = *y;
 static MAX: fn(&mut f32, &f32) = |x, y| *x = max_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
 static MIN: fn(&mut f32, &f32) = |x, y| *x = min_by(*x, *y, |x, y| x.partial_cmp(y).unwrap());
@@ -107,7 +112,7 @@ struct ValueHandle {
 
 struct ValueManager<'s> {
     values: Vec<Value<'s>>,
-    paras: Vec<Vec<(u8, u8)>>
+    paras: Vec<Vec<(u8, u16)>>
 }
 
 impl<'s> ValueManager<'s> {
@@ -138,7 +143,7 @@ impl<'s> ValueManager<'s> {
                 for i in 0..funcs.len() {
                     for (ii, value) in self.values.iter().enumerate() {
                         if value.name == parents[i] {
-                            paras.push((get_func(&funcs[i]), ii as u8));
+                            paras.push((get_func(&funcs[i]), ii as u16));
 
                             break;
                         }
@@ -158,6 +163,10 @@ impl<'s> ValueManager<'s> {
         });
 
         return self.values.last().unwrap().handle.clone();
+    }
+
+    fn get_handle(&self, name: &'s str) -> Arc<ValueHandle> {
+        self.values.iter().find(|v| v.name == name).unwrap().handle.clone()
     }
 
     fn update(&mut self) {
@@ -182,7 +191,7 @@ impl<'s> ValueManager<'s> {
             for (ii, value) in self.values.iter().enumerate() {
                 if let Some(paras) = &value.paras {
                     for (_, parent) in self.paras[*paras as usize].iter() {
-                        if i as u8 == *parent && !update.contains(&ii) {
+                        if i as u16 == *parent && !update.contains(&ii) {
                             update.push(ii);
                             stack.push(ii);
 
@@ -249,6 +258,7 @@ struct Veget { item: f32 }
 struct Neighb { item: Vec<Entity> }
 struct RiverBase { item: f32 }
 struct VegetBase { item: f32 }
+struct Index { item: usize }
 struct Pop { value: Arc<ValueHandle> }
 struct Skill { item: HashMap<String, Arc<ValueHandle>> }
 struct Building { item: HashMap<String, Arc<ValueHandle>> }
@@ -361,6 +371,7 @@ struct Core {
     sys: Arc<SysLoop>,
     pools: Vec<ThreadPool>,
     barrier: Arc<Barrier>,
+    defines: Defines,
 }
 
 impl Core {
@@ -370,6 +381,7 @@ impl Core {
         let mtx = Arc::new(Mutex::new(false));
         let run = Arc::new(AtomicBool::new(false));
         let pools = vec![ThreadPoolBuilder::new().num_threads(1).build().unwrap(), ThreadPoolBuilder::new().num_threads(num_cpus::get() - 1).build().unwrap()];
+        let defines = Defines { size: 1024 };
 
         let (producer_app, consumer_app) = channel::<LoopEvent>();
         let (producer_sys, consumer_sys) = channel::<LoopEvent>();
@@ -381,6 +393,9 @@ impl Core {
         resources_sys.insert(Wrapper { item: producer_app });
 
         resources_app.insert(run.clone());
+
+        resources_app.insert(defines.clone());
+        resources_sys.insert(defines.clone());
 
         let app = AppLoop {
             world: universe.create_world(),
@@ -415,11 +430,12 @@ impl Core {
             sys,
             pools,
             barrier,
+            defines,
         }
     }
 
     fn load_pixels(&mut self) {
-        let mut map = map::ProvBuilder::new(1024, 0.1, 0.6, 2., 0., 1., 0.1, 0.9, -60., 20.);
+        let mut map = map::ProvBuilder::new(self.defines.size, 0.1, 0.6, 2., 0., 1., 0.1, 0.9, -20., -10.);
 
         map.gen_heightmap();
         map.gen_insolation();
@@ -429,6 +445,7 @@ impl Core {
         map.gen_rivermap();
         map.gen_watermap();
         map.gen_vegetmap();
+        map.gen_settlements();
 
         map.export(&map.heightmap, "heightmap.png");
         map.export_minmax(&map.insolation, "insolation.png", 0., 1.);
@@ -438,6 +455,7 @@ impl Core {
         map.export_minmax(&map.rivermap, "rivermap.png", 0., 1.);
         map.export_minmax(&map.watermap, "watermap.png", 0., 1.);
         map.export_minmax(&map.vegetmap, "vegetmap.png", 0., 1.);
+        map.export_settlements("settlements.png");
 
         let world = unsafe { &mut Arc::get_mut_unchecked(&mut self.sys).world };
 
@@ -453,6 +471,7 @@ impl Core {
                     Water { item: (map.rivermap[i] + map.cloudmap[i]) as f32 / 2. },
                     RiverBase { item: map.rivermap[i] as f32 },
                     VegetBase { item: map.vegetmap[i] as f32 },
+                    Index { item: i },
                 )
             })
         ).to_vec();
@@ -467,6 +486,9 @@ impl Core {
                     map::Water::Sea => world.add_tag(pixel, Sea).unwrap(),
                     map::Water::Lake => world.add_tag(pixel, Lake).unwrap(),
                 };
+            }
+            if map.settlements[i] {
+                world.add_tag(pixel, Settlement).unwrap();
             }
         }
     }

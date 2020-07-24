@@ -173,6 +173,7 @@ pub struct ProvBuilder {
     pub tempmap: Vec<f64>,
     pub watermap: Vec<f64>,
     pub vegetmap: Vec<f64>,
+    pub settlements: Vec<bool>,
     water_level: f64,
     water_taper: f64,
     lat_start: f64,
@@ -230,6 +231,7 @@ impl ProvBuilder {
             tempmap: Vec::new(),
             watermap: Vec::new(),
             vegetmap: Vec::new(),
+            settlements: Vec::new(),
             water_level,
             water_taper,
             lat_start,
@@ -501,11 +503,41 @@ impl ProvBuilder {
 
         self.vegetmap = vec![0.; size * size];
 
-        for i in 0..size*size {
+        for i in 0..size * size {
             if self.heightmap[i] > 0. {
                 let water = clamp(1.5 * self.watermap[i] - self.tempmap[i] / 2., 0., 1.);
 
                 self.vegetmap[i] = (water * (-(self.tempmap[i] - 0.75).powi(2) + 1.)).sqrt();
+            }
+        }
+    }
+
+    pub fn gen_settlements(&mut self) {
+        let size = self.size;
+
+        self.settlements = vec![false; size * size];
+
+        let mut rng = rand::thread_rng();
+        let mut ys = Vec::new();
+        ys.push(0);
+
+        while *ys.last().unwrap() < size {
+            ys.push(ys.last().unwrap() + rng.gen_range(5, 20))
+        }
+
+        ys.pop();
+
+        'outer: for y in ys.iter() {
+            for x in 0..size {
+                let i = y * size + x;
+
+                if self.waters.get(&i).is_none() {
+                    if rng.gen::<bool>() && rng.gen::<bool>() {
+                        self.settlements[i] = true;
+
+                        continue 'outer;
+                    }
+                }
             }
         }
     }
@@ -544,6 +576,25 @@ impl ProvBuilder {
                 i += 1;
 
                 img.put_pixel(x as u32, y as u32, Rgb([val, val, val]));
+            }
+        }
+
+        img.save(path.into()).unwrap();
+    }
+
+    pub fn export_settlements<T: Into<PathBuf>>(&self, path: T) {
+        let mut i = 0;
+        let mut img = RgbImage::new(self.size as u32, self.size as u32);
+
+        for y in 0..self.size {
+            for x in 0..self.size {
+                if self.settlements[i] {
+                    img.put_pixel(x as u32, y as u32, Rgb([255, 255, 255]));
+                } else {
+                    img.put_pixel(x as u32, y as u32, Rgb([0, 0, 0]));
+                }
+
+                i += 1;
             }
         }
 
